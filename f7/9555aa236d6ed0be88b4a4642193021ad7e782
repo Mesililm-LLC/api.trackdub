@@ -1,0 +1,101 @@
+drizzle/0000_better_auth_init.sql
+  s_7ec31497aea009::t_483b2db480127f 1-49
+drizzle/meta/0000_snapshot.json
+  s_7ec31497aea009::t_627aea4d00a608 1-341
+drizzle/meta/_journal.json
+  s_7ec31497aea009::t_1067bfbca99f4b 1-13
+package-lock.json
+  s_7ec31497aea009::t_32a824f315bbac 1-6253
+test/session.test.ts
+  s_7ec31497aea009::t_7225796eb40bdb 1-130
+.dev.vars.example
+  s_7ec31497aea009::t_7d8354dc11cdaf 1-11
+.gitignore
+  s_7ec31497aea009::t_26c4f1eb93ab17 1-25
+README.md
+  s_7ec31497aea009::t_b4c9778132271e 1-124
+docs/ARCHITECTURE.md
+  s_7ec31497aea009::t_643b4b19d3e1c6 1-98
+docs/CONTRACT-MISMATCHES.md
+  s_7ec31497aea009::t_c859a93c35884e 1-78
+drizzle.config.ts
+  s_7ec31497aea009::t_1b6f8ef2555742 1-13
+package.json
+  s_7ec31497aea009::t_d9295e06fb6aea 1-39
+src/auth/index.ts
+  s_7ec31497aea009::t_d6f2e1b5e29341 1-62
+src/auth/provision.ts
+  s_7ec31497aea009::t_df21528f4f5e0b 1-50
+src/config/env.ts
+  s_7ec31497aea009::t_93c043d39d6964 1-89
+src/db/client.ts
+  s_7ec31497aea009::t_32d6683fa67c5a 1-13
+src/db/schema.ts
+  s_7ec31497aea009::t_c7f76d08724597 1-63
+src/index.ts
+  s_7ec31497aea009::t_d47d7ee39d82af 1-64
+src/lib/crypto.ts
+  s_7ec31497aea009::t_92c83941a5a44b 1-16
+src/lib/errors.ts
+  s_7ec31497aea009::t_1deb8253f3e71e 1-64
+src/lib/languages.ts
+  s_7ec31497aea009::t_59b2bf1052a0bc 1-39
+src/lib/logger.ts
+  s_7ec31497aea009::t_b5aef559b9f1fa 1-35
+src/middleware/auth.ts
+  s_7ec31497aea009::t_8d3a5f8e371ec0 1-32
+src/middleware/authorize.ts
+  s_7ec31497aea009::t_d5ba3c11ab0367 1-22
+src/middleware/error.ts
+  s_7ec31497aea009::t_db9193c2d9c830 1-39
+src/middleware/logging.ts
+  s_7ec31497aea009::t_bbac564a2f7fee 1-19
+src/middleware/request-id.ts
+  s_7ec31497aea009::t_0e09f782ac492c 1-15
+src/middleware/validate.ts
+  s_7ec31497aea009::t_03a991c399714d 1-36
+src/routes/admin.ts
+  s_7ec31497aea009::t_687860872ff285 1-60
+src/routes/health.ts
+  s_7ec31497aea009::t_4c1193e3d3e73a 1-58
+src/routes/languages.ts
+  s_7ec31497aea009::t_c6f24bf3c40b63 1-15
+src/routes/version.ts
+  s_7ec31497aea009::t_c2d1c3a42324c3 1-22
+src/types/env.ts
+  s_7ec31497aea009::t_5de4b41ddb728f 1-36
+test/apply-migrations.ts
+  s_7ec31497aea009::t_2be5d98d09b66d 1-11
+test/auth-middleware.test.ts
+  s_7ec31497aea009::t_ab103e3f8344cc 1-55
+test/cors.test.ts
+  s_7ec31497aea009::t_a44028076b351a 1-56
+test/env.d.ts
+  s_7ec31497aea009::t_9f44e255574a9c 1-12
+test/error.test.ts
+  s_7ec31497aea009::t_da68fe0bec3d2a 1-52
+test/health.test.ts
+  s_7ec31497aea009::t_524dd929d455ef 1-44
+tsconfig.json
+  s_7ec31497aea009::t_f1bda51e66ba46 1-26
+vitest.config.ts
+  s_7ec31497aea009::t_ec4058710b2411 1-39
+wrangler.jsonc
+  s_7ec31497aea009::t_c996d115b981fe 1-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "f79555aa236d6ed0be88b4a4642193021ad7e782",
+  "prompts": {},
+  "sessions": {
+    "s_7ec31497aea009": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de47f52c-9098-4d56-be70-f0427ace76b9",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "tonythethompson <github@trackdub.com>"
+    }
+  }
+}

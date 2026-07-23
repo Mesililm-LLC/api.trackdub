@@ -1,0 +1,11 @@
+# Local development secrets for `wrangler dev`.
+# Copy to `.dev.vars` (git-ignored) and fill in real values.
+# For deployed environments, set these with `wrangler secret put <NAME>`.
+
+# Better Auth server secret — used to sign/encrypt session tokens.
+# Generate one: `openssl rand -base64 32`
+BETTER_AUTH_SECRET="replace-with-a-32-byte-random-secret"
+
+# Shared secret guarding the internal invite/create-user endpoint.
+# Generate one: `openssl rand -base64 32`
+ADMIN_API_TOKEN="replace-with-a-random-admin-token"

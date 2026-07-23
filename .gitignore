@@ -1,0 +1,25 @@
+# Dependencies
+node_modules
+
+# Build / Wrangler
+dist
+.wrangler
+worker-configuration.d.ts
+
+# Secrets — never commit
+.dev.vars
+.env
+.env.local
+*.local
+
+# Logs
+*.log
+
+# Test / coverage
+coverage
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store

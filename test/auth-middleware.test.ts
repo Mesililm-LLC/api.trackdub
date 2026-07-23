@@ -1,21 +1,42 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
+import { Hono } from "hono";
 import app from "@/index";
-import type { Bindings } from "@/types/env";
+import { requestId } from "@/middleware/request-id";
+import { requireAuth } from "@/middleware/auth";
+import { onError } from "@/middleware/error";
+import { ApiError, toErrorBody } from "@/lib/errors";
+import type { AppEnv, Bindings } from "@/types/env";
 
 const bindings = env as unknown as Bindings;
 
+/**
+ * No production route currently uses `requireAuth` in isolation (PR1's only
+ * candidate, /api/languages, is intentionally public — see below). This
+ * synthetic app exercises the middleware directly, the same pattern used for
+ * `onError` in error.test.ts, so the 401 behavior stays covered without
+ * inventing a fake production endpoint.
+ */
+function protectedTestApp() {
+  const test = new Hono<AppEnv>();
+  test.use("*", requestId);
+  test.get("/protected", requireAuth, (c) => c.json({ ok: true }));
+  test.notFound((c) => c.json(toErrorBody(ApiError.notFound(), c.get("requestId") ?? "unknown"), 404));
+  test.onError(onError);
+  return test;
+}
+
 describe("auth middleware (requireAuth)", () => {
   it("rejects an unauthenticated request to a protected route with 401", async () => {
-    const res = await app.request("/api/languages", {}, bindings);
+    const res = await protectedTestApp().request("/protected", {}, bindings);
     expect(res.status).toBe(401);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("UNAUTHORIZED");
   });
 
   it("rejects a request bearing a garbage session cookie", async () => {
-    const res = await app.request(
-      "/api/languages",
+    const res = await protectedTestApp().request(
+      "/protected",
       { headers: { Cookie: "better-auth.session_token=not-a-real-token" } },
       bindings,
     );
@@ -51,5 +72,35 @@ describe("authorization middleware (requireAdminToken)", () => {
       bindings,
     );
     expect(res.status).toBe(403);
+  });
+});
+
+describe("public routes stay reachable", () => {
+  it("GET /api/languages returns 200 without a session", async () => {
+    const res = await app.request("/api/languages", {}, bindings);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: unknown[] };
+    expect(Array.isArray(body.items)).toBe(true);
+    expect(body.items.length).toBeGreaterThan(0);
+  });
+
+  it("Better Auth routes are not blocked by session middleware", async () => {
+    // No requireAuth sits in front of /api/auth/*; an unauthenticated sign-in
+    // attempt should reach Better Auth's own handler (invalid creds → 401/400
+    // from Better Auth, never our requireAuth's generic UNAUTHORIZED).
+    const res = await app.request(
+      "/api/auth/sign-in/email",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: "https://portal.trackdub.com" },
+        body: JSON.stringify({ email: "nobody@example.com", password: "wrong" }),
+      },
+      bindings,
+    );
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    const body = (await res.json()) as { error?: { code?: string } };
+    // Better Auth's own error shape, not our ApiError envelope.
+    expect(body.error?.code).not.toBe("UNAUTHORIZED");
   });
 });

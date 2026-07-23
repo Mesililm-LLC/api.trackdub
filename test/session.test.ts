@@ -90,17 +90,7 @@ describe("session lifecycle", () => {
     const cookie = sessionCookieFrom(signIn);
     expect(cookie).toBeTruthy();
 
-    // 2. Session is valid: protected route returns 200.
-    const authed = await app.request(
-      "/api/languages",
-      { headers: { Cookie: cookie! } },
-      bindings,
-    );
-    expect(authed.status).toBe(200);
-    const body = (await authed.json()) as { items: unknown[] };
-    expect(Array.isArray(body.items)).toBe(true);
-
-    // 3. Session endpoint (portal contract path /api/auth/session, aliased to
+    // 2. Session endpoint (portal contract path /api/auth/session, aliased to
     //    Better Auth's get-session) reflects the logged-in user.
     const session = await app.request(
       "/api/auth/session",
@@ -111,7 +101,7 @@ describe("session lifecycle", () => {
     const sessionBody = (await session.json()) as { user?: { email?: string } } | null;
     expect(sessionBody?.user?.email).toBe(USER.email);
 
-    // 4. Logout.
+    // 3. Logout.
     const logout = await app.request(
       "/api/auth/sign-out",
       { method: "POST", headers: { Cookie: cookie!, Origin: PORTAL } },
@@ -119,12 +109,15 @@ describe("session lifecycle", () => {
     );
     expect(logout.status).toBe(200);
 
-    // 5. After logout, the protected route is unauthorized again.
+    // 4. After logout, the session is gone.
     const afterLogout = await app.request(
-      "/api/languages",
+      "/api/auth/session",
       { headers: { Cookie: cookie! } },
       bindings,
     );
-    expect(afterLogout.status).toBe(401);
+    const afterLogoutBody = (await afterLogout.json().catch(() => null)) as {
+      user?: unknown;
+    } | null;
+    expect(afterLogoutBody?.user).toBeFalsy();
   });
 });

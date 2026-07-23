@@ -7,7 +7,7 @@ portal.trackdub.com                    api.trackdub.com (this Worker)
   React SPA, browser only                Hono + Better Auth + D1 + Drizzle
   fetch(..., credentials:"include") ───►  /api/auth/*   (Better Auth)
   no auth logic, no cookie reads          /api/health, /api/version
-  route guards are UX only                /api/languages (auth required)
+  route guards are UX only                /api/languages (public)
                                           /api/admin/invite (operator token)
 ```
 
@@ -43,9 +43,10 @@ Every request flows through this chain (`src/index.ts`):
    Credentials enabled; never `*`; `OPTIONS` preflight handled.
 4. **routing**
    - `/api/auth/*` → Better Auth handler (plus a `/api/auth/session` alias).
-   - `/api/health*`, `/api/version` → open.
-   - `/api/languages` → `requireAuth` (session required).
+   - `/api/health*`, `/api/version`, `/api/languages` → public, no session required.
    - `/api/admin/*` → `requireAdminToken` (operator bearer token).
+   - `requireAuth` exists for future session-gated routes (dubs/billing/keys)
+     but no PR1 route currently mounts it.
 5. **error handling** — `app.onError` maps `ApiError` → its status/code, config
    errors and anything unexpected → generic 500. Stack traces are logged, never
    returned. All errors share `{ error: { code, message, requestId } }`.

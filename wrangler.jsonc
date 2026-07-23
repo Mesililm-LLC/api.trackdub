@@ -1,11 +1,11 @@
 {
-  // Cloudflare Worker: api.trackdub.com
-  // Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "trackdub-api",
   "main": "src/index.ts",
   "compatibility_date": "2025-08-01",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "observability": {
     "enabled": true
   },
@@ -16,8 +16,6 @@
       "custom_domain": true
     }
   ],
-  // Public (non-secret) configuration. Secrets go in .dev.vars (local) and
-  // `wrangler secret put` (deployed) — never here.
   "vars": {
     "APP_ENV": "production",
     "PORTAL_ORIGIN": "https://portal.trackdub.com"
@@ -26,7 +24,7 @@
     {
       "binding": "DB",
       "database_name": "trackdub_api",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "073c0238-db61-40d3-b1ee-3e7555493a72",
       "migrations_dir": "drizzle"
     }
   ],

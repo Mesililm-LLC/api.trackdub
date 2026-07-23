@@ -54,6 +54,8 @@ smallest compatible fix (no frontend change) or flagged for a decision.
   Advertising `zh` would fake dubbing readiness.
 - **Action:** portal fallback is cosmetic; the Worker list is authoritative.
   Align the portal fallback if exactness matters offline.
+- **Auth:** endpoint is public (no session required) — populating a language
+  dropdown shouldn't require signing in first.
 
 ## 6. Password-reset endpoint spelling — COMPATIBLE
 

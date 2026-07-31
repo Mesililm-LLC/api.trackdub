@@ -1,0 +1,1 @@
+Cloudflare Workers via Wrangler (compatibility date 2026-07-01, `nodejs_compat` flag), Drizzle Kit with the `d1-http` SQLite dialect for D1 migrations, and Vitest with `@cloudflare/vitest-pool-workers` for workerd-based integration tests.

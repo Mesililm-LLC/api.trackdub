@@ -3,11 +3,11 @@ schema_version: 1
 locale: en-US
 branch: main
 nodes_managed: true
-exported_at: "2026-07-31T05:37:54Z"
+exported_at: "2026-07-31T16:13:14Z"
 modules:
     "":
-        dir_name: Trackdub API — Cloudflare Worker Backend
-        title: Trackdub API — Cloudflare Worker Backend
+        dir_name: Trackdub API — Cloudflare Workers Backend
+        title: Trackdub API — Cloudflare Workers Backend
         scope:
             - README.md
             - .gitignore
@@ -21,8 +21,22 @@ modules:
             - package-lock.json
         source_files: []
         children:
+            - activation
             - db
             - tests
+        depends_on: []
+        related_to: []
+    activation:
+        dir_name: Activation Worker (Drizzle Kit, Wrangler & Test Config)
+        title: Activation Worker (Drizzle Kit, Wrangler & Test Config)
+        scope:
+            - drizzle-activation/
+            - wrangler.activation.jsonc
+            - wrangler.activation.staging.jsonc
+            - drizzle-activation.config.ts
+            - vitest.activation.config.ts
+        source_files: []
+        children: []
         depends_on: []
         related_to: []
     db:
@@ -33,15 +47,13 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: tests
+        related_to: []
     tests:
-        dir_name: Integration & Middleware Tests (Vitest + Cloudflare Workers)
-        title: Integration & Middleware Tests (Vitest + Cloudflare Workers)
+        dir_name: Integration & Activation Tests (Vitest + Cloudflare Workers Pool)
+        title: Integration & Activation Tests (Vitest + Cloudflare Workers Pool)
         scope:
             - test/
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: db
+        related_to: []

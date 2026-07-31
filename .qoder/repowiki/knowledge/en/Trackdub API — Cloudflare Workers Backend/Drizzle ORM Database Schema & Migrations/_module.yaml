@@ -5,5 +5,4 @@ scope:
     - drizzle/
 source_files: []
 depends_on: []
-related_to:
-    - path: tests
+related_to: []

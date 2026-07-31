@@ -1,0 +1,1 @@
+Configuration for the standalone Cloudflare Worker that manages license activations, including Drizzle Kit migration setup, Wrangler deployment configs for production and staging, and a Vitest harness running tests inside the real workerd runtime.

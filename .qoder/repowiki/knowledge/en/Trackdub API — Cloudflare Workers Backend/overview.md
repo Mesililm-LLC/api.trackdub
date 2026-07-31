@@ -1,0 +1,1 @@
+Cloudflare Workers backend for api.trackdub.com that wires a Hono server, Better Auth authentication, Drizzle ORM over D1, and Wrangler deployment/testing tooling into a single monorepo with a parallel activation worker.

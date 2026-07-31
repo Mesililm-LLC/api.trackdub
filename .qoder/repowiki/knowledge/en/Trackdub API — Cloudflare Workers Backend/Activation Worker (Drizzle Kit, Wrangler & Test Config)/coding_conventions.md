@@ -1,0 +1,3 @@
+- Each environment (production, staging) gets its own `wrangler.<env>.jsonc` file with a distinct `name`, `database_name`, `SIGNING_KEY_ID`, and custom domain pattern, keeping deployments isolated.
+- Drizzle Kit projects are configured via a dedicated `*.config.ts` file that points `schema` at the corresponding `src/*/schema.ts` and sets `out` to a versioned `drizzle-*` directory containing only generated SQL and `_journal.json`.
+- Test bindings are injected through the Vitest config's `miniflare.bindings` object, with secrets like `SIGNING_KEY` supplied from a plain Node module (`test/activation/test-keys.ts`) that has no workerd imports so it can be safely bundled alongside test code.

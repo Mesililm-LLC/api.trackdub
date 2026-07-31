@@ -8,12 +8,27 @@ import type { ActivationEnv } from "@/activation/types";
 export const status = new Hono<ActivationEnv>();
 
 /**
- * GET /status?key=<license_key> — license status: tier, activations
- * used/max, expiry. Not called by any shipped desktop build today, but
- * ported for support workflows.
+ * POST /status — license status: tier, activations used/max, expiry. Not
+ * called by any shipped desktop build today, but ported for support
+ * workflows.
+ *
+ * The reference implementation this was ported from used `GET
+ * /status?key=<license_key>`. Changed to POST + JSON body here: Cloudflare
+ * Workers Observability (`"observability": {"enabled": true}` in both
+ * wrangler configs) captures full request URLs including query strings, so a
+ * GET would put every raw license key into observability logs for anyone
+ * with log access to read and reuse — the exact thing every other route
+ * avoids by taking `key` in the body. Safe to change since nothing shipped
+ * depends on the old shape.
  */
-status.get("/", async (c) => {
-  const key = c.req.query("key");
+status.post("/", async (c) => {
+  let body: { key?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return activationError(c, "invalid_key", 400);
+  }
+  const { key } = body;
 
   if (!isValidKey(key)) {
     return activationError(c, "invalid_key", 400);

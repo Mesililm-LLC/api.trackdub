@@ -26,7 +26,11 @@ describe("POST /reactivate", () => {
     // The old fingerprint's seat is freed; the license is at cap 1, so
     // activating the OLD fingerprint again should now succeed (it's a fresh
     // seat claim) while the license overall still shows only one active seat.
-    const status = await app.request(`/status?key=${licenseKey}`, {}, bindings);
+    const status = await app.request(
+      "/status",
+      { method: "POST", body: JSON.stringify({ key: licenseKey }) },
+      bindings,
+    );
     expect((await status.json())).toMatchObject({ activations_used: 1, activations_max: 1 });
   });
 

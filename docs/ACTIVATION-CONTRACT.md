@@ -46,7 +46,7 @@ contract, it's what already ships:
 | `POST /activate` | Yes | `{key, fingerprint}` | 200 `{token}` | `invalid_key` 400, `invalid_fingerprint` 400, `key_revoked` 403, `max_activations` 409 `{max}` |
 | `POST /deactivate` | Yes | `{key, fingerprint}` | 200 `{status:"released"}` (idempotent) | same as above |
 | `POST /reactivate` | No (support/future use) | `{key, old_fingerprint, new_fingerprint}` | 200 `{token}` | above + `activation_not_found` 400/409, `max_activations` **403** (not 409 — an inconsistency inherited from the reference implementation, not introduced here) |
-| `GET /status?key=` | No (support/future use) | — | 200 `{tier, status, activations_used, activations_max, expires_at, dev_unlimited?}` | `invalid_key` 400, `key_revoked` 403 |
+| `POST /status` | No (support/future use) | `{key}` | 200 `{tier, status, activations_used, activations_max, expires_at, dev_unlimited?}` | `invalid_key` 400, `key_revoked` 403 |
 | `POST /admin/licenses` | No (operator-only, `Authorization: Bearer <ADMIN_API_TOKEN>`) | `{email, tier?, maxMachines?}` | 201 `{licenseKey, licenseId}` | portal-style `{error:{code,message,requestId}}` |
 
 `fingerprint` is a 64-char lowercase hex SHA-256, produced by

@@ -1,0 +1,17 @@
+schema_version: 1
+module_path: ""
+title: Trackdub API — Cloudflare Worker Backend
+scope:
+    - README.md
+    - .gitignore
+    - AGENTS.md
+    - package.json
+    - tsconfig.json
+    - drizzle.config.ts
+    - vitest.config.ts
+    - wrangler.jsonc
+    - .dev.vars.example
+    - package-lock.json
+source_files: []
+depends_on: []
+related_to: []

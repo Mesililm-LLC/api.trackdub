@@ -1,0 +1,1 @@
+Migrations are managed by Drizzle Kit against an SQLite database; the `_journal.json` records that this project has one applied migration (`0000_better_auth_init`) with breakpoints enabled.

@@ -1,0 +1,1 @@
+Drizzle Kit with SQLite dialect; migration format uses Drizzle journal v7 with statement-breakpoint markers for individual DDL statements.

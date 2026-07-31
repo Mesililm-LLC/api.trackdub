@@ -1,0 +1,1 @@
+Vitest with the `@cloudflare/vitest-pool-workers` pool; Drizzle migrations applied through `cloudflare:test`'s `applyD1Migrations`; Hono apps exercised via their native `request()` method; Better Auth for session/sign-in flows.

@@ -1,0 +1,47 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: en-US
+branch: main
+nodes_managed: true
+exported_at: "2026-07-31T00:53:53Z"
+modules:
+    "":
+        dir_name: Trackdub API — Cloudflare Worker Backend
+        title: Trackdub API — Cloudflare Worker Backend
+        scope:
+            - README.md
+            - .gitignore
+            - AGENTS.md
+            - package.json
+            - tsconfig.json
+            - drizzle.config.ts
+            - vitest.config.ts
+            - wrangler.jsonc
+            - .dev.vars.example
+            - package-lock.json
+        source_files: []
+        children:
+            - db
+            - tests
+        depends_on: []
+        related_to: []
+    db:
+        dir_name: Drizzle ORM Database Schema & Migrations
+        title: Drizzle ORM Database Schema & Migrations
+        scope:
+            - drizzle/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: tests
+    tests:
+        dir_name: Integration & Middleware Tests (Vitest + Cloudflare Workers)
+        title: Integration & Middleware Tests (Vitest + Cloudflare Workers)
+        scope:
+            - test/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: db

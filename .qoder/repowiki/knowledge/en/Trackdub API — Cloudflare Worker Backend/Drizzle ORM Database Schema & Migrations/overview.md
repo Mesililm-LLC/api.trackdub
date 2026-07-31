@@ -1,0 +1,1 @@
+SQLite database schema and Drizzle migration files defining the Better Auth user, account, session, and verification tables with their relationships and indexes.

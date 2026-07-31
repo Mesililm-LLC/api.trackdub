@@ -23,3 +23,14 @@ coverage
 !.vscode/extensions.json
 .idea
 .DS_Store
+
+# Qoder local state — ignore everything except generated wiki + knowledge cards
+/.qoder/*
+!/.qoder/repowiki
+/.qoder/repowiki/*
+!/.qoder/repowiki/en
+!/.qoder/repowiki/knowledge
+/.qoder/repowiki/en/*
+!/.qoder/repowiki/en/content
+/.qoder/repowiki/knowledge/*
+!/.qoder/repowiki/knowledge/en

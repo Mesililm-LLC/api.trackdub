@@ -1,0 +1,4 @@
+- Database schema lives in `src/db/schema.ts` and migrations are generated into `./drizzle/`, consumed by both Wrangler and Vitest config.
+- Environment variables and Cloudflare bindings are declared centrally in `wrangler.jsonc` and mirrored in `vitest.config.ts` for the test runtime.
+- Source code is imported via the `@/*` path alias pointing to `./src/`, enforced by both `tsconfig.json` and Vitest resolver.
+- Tests use the `@cloudflare/vitest-pool-workers` pool to execute inside the real workerd runtime rather than Node.js.

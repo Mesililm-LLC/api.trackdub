@@ -1,0 +1,3 @@
+- Each DDL statement is separated by a `--> statement-breakpoint` marker so Drizzle can track individual migration steps.
+- Tables use `text` for identifiers and string fields, `integer` for timestamps and boolean flags, and `PRIMARY KEY NOT NULL` for all primary keys.
+- Foreign key relationships reference `user.id` with `ON UPDATE no action ON DELETE cascade` to enforce referential integrity while cascading deletions.

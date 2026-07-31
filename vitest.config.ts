@@ -34,6 +34,9 @@ export default defineConfig(async () => {
     ],
     test: {
       globals: true,
+      // Excludes test/activation/** — that suite runs under its own D1 schema
+      // and bindings via vitest.activation.config.ts (`npm run test:activation`).
+      include: ["test/*.test.ts"],
       setupFiles: ["./test/apply-migrations.ts"],
       // Better Auth's sign-in route (node_modules/better-auth/dist/api/routes/
       // sign-in.mjs) throws an `APIError` for invalid credentials that is

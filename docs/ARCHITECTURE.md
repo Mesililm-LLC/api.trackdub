@@ -1,5 +1,10 @@
 # Architecture — Authentication flow & request lifecycle
 
+This document covers the portal API Worker (`src/index.ts`,
+`wrangler.jsonc`) only. Desktop license activation is a separate Worker with
+its own D1 and secrets — see `docs/ACTIVATION-CONTRACT.md` and
+`src/activation/`.
+
 ## Topology
 
 ```

@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "trackdub-activation",
+  "main": "src/activation/index.ts",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "activate.trackdub.com",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "APP_ENV": "production",
+    "ACTIVATION_ISSUER": "https://activate.trackdub.com",
+    "ACTIVATION_AUDIENCE": "trackdub-license-prod",
+    // Trust-ring key id this deployment signs with. Public — appears in every
+    // issued JWT payload. NOT a secret; only SIGNING_KEY (the private half)
+    // is `wrangler secret put`. Update this + redeploy as the last step of
+    // key rotation once add-key --make-current has flipped the ring's
+    // CurrentKeyId (see docs/licensing/trust-ring-schema.md upstream).
+    "SIGNING_KEY_ID": "trackdub-prod-2026-08"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "trackdub_activation",
+      "database_id": "f95337b1-aff5-455d-a0f9-3293211b1727",
+      "migrations_dir": "drizzle-activation"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "trackdub-activation-staging",
+  "main": "src/activation/index.ts",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "activate.trackdub.dev",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "APP_ENV": "staging",
+    "ACTIVATION_ISSUER": "https://activate.trackdub.dev",
+    "ACTIVATION_AUDIENCE": "trackdub-license-staging",
+    // Separate key from production — see wrangler.activation.jsonc. A
+    // staging deploy must never be able to mint a token the production
+    // trust ring would accept, and vice versa.
+    "SIGNING_KEY_ID": "trackdub-staging-2026-08",
+    "ALLOW_DEV_LICENSES": "true"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "trackdub_activation_staging",
+      "database_id": "d694b5d9-3c04-4534-a9cd-6892967fb5ee",
+      "migrations_dir": "drizzle-activation"
+    }
+  ]
+}

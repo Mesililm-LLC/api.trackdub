@@ -13,7 +13,17 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply trackdub_api --local",
     "db:migrate:remote": "wrangler d1 migrations apply trackdub_api --remote",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "dev:activation": "wrangler dev --config wrangler.activation.jsonc",
+    "deploy:activation": "wrangler deploy --config wrangler.activation.jsonc",
+    "deploy:activation:staging": "wrangler deploy --config wrangler.activation.staging.jsonc",
+    "test:activation": "vitest run --config vitest.activation.config.ts",
+    "test:activation:watch": "vitest --config vitest.activation.config.ts",
+    "db:generate:activation": "drizzle-kit generate --config drizzle-activation.config.ts",
+    "db:migrate:activation:local": "wrangler d1 migrations apply trackdub_activation --local --config wrangler.activation.jsonc",
+    "db:migrate:activation:remote": "wrangler d1 migrations apply trackdub_activation --remote --config wrangler.activation.jsonc",
+    "db:migrate:activation:staging:remote": "wrangler d1 migrations apply trackdub_activation_staging --remote --config wrangler.activation.staging.jsonc",
+    "test:all": "npm run test && npm run test:activation"
   },
   "dependencies": {
     "better-auth": "^1.3.10",

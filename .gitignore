@@ -25,9 +25,11 @@ coverage
 .DS_Store
 
 # Qoder local state — ignore everything except generated wiki + knowledge cards
+# and the wiki_plan.yaml steering config
 /.qoder/*
 !/.qoder/repowiki
 /.qoder/repowiki/*
+!/.qoder/repowiki/wiki_plan.yaml
 !/.qoder/repowiki/en
 !/.qoder/repowiki/knowledge
 /.qoder/repowiki/en/*

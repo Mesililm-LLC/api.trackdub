@@ -1,0 +1,55 @@
+version: 1
+
+scope:
+  include: []
+  exclude:
+    - "node_modules/**"
+    - "dist/**"
+    - ".wrangler/**"
+    - "coverage/**"
+
+repowiki:
+  template: ""
+  notes:
+    - text: >-
+        api.trackdub is api.trackdub.com — a Cloudflare Worker backend for the
+        Trackdub portal. Stack: Hono app, Better Auth (email/password,
+        invite-only, host-only session cookies), Cloudflare D1 (SQLite) via
+        Drizzle ORM + Drizzle Kit migrations, R2 binding reserved for media,
+        Zod for config/request validation, Vitest with @cloudflare/vitest-pool-workers
+        (tests run in real workerd). It owns authentication, authorization, and
+        API routing.
+    - text: >-
+        The portal (portal.trackdub.com) is a browser-only SPA that calls this
+        Worker with credentials: "include"; no backend logic lives in the
+        portal. CORS and trustedOrigins are driven by the PORTAL_ORIGIN env var.
+    - text: >-
+        Current scope is PR1 — backend foundation: auth, health, version,
+        languages, and cross-cutting middleware (request-id, logging, error,
+        auth, authorize, validate). Dubs, billing, keys, and webhooks are
+        intentionally NOT implemented yet; do not document them as present.
+    - text: >-
+        Config is fail-fast validated on first request in src/config/env.ts;
+        secrets (BETTER_AUTH_SECRET, ADMIN_API_TOKEN) live in .dev.vars locally
+        and via wrangler secret put deployed — never commit them. Registration
+        is invite-only and seeded through the admin invite endpoint.
+    - text: >-
+        Layering contract for generated docs. The knowledge cards under
+        .qoder/repowiki/knowledge/ are the canonical, auto-refreshing source of
+        truth for code-level facts and must stay current with the code. The
+        prose pages under .qoder/repowiki/en/content/ are secondary per-repo
+        detail and must not contradict the cards. The separate Trackdub.wiki
+        repo (published as the GitHub wiki) is a manually regenerated,
+        cross-repo product amalgam built FROM these cards plus Devin/Cubic
+        sources; it is downstream, not a source to copy. Keep this repo's prose
+        code-focused and defer product-level overview to the wiki.
+
+knowledgecard:
+  notes:
+    - text: >-
+        Split knowledge cards along src/ boundaries: config (env), auth (Better
+        Auth factory + invite provisioning), db (Drizzle client + schema),
+        middleware (request-id, logging, error, auth, authorize, validate),
+        routes (health, version, languages, admin), lib (logger, errors,
+        crypto, static languages), types (Bindings + Hono Variables). Note the
+        Drizzle migrations under drizzle/ and tests under test/.

@@ -141,9 +141,25 @@ export async function replaceActivationSeat(
   const claim = await ensureActiveActivation(db, license, newFingerprint, generateId);
   if (claim === "max_reached") {
     // Concurrent /activate took the freed seat — restore the old fingerprint.
+    // This restore must carry the same max_machines predicate as every other
+    // seat claim in this file: without it, a second concurrent /activate that
+    // filled the freed seat AFTER the release but BEFORE this restore runs
+    // would leave max_machines + 1 active (e.g. max=2, {A,B} active,
+    // reactivate A->D releases A leaving {B}, a concurrent activate for C
+    // fills it to {B,C}, D's claim above correctly fails at cap — but an
+    // unconditional restore of A here would still push it to {A,B,C}=3). If
+    // the cap is still full when this runs, A stays released rather than
+    // pushing the count over max_machines; the caller still gets
+    // max_activations either way, since D never got a seat regardless.
     await db
-      .prepare("UPDATE activations SET status = ?, activated_at = ?, released_at = NULL WHERE id = ?")
-      .bind("active", new Date().toISOString(), oldActivationId)
+      .prepare(
+        `UPDATE activations
+         SET status = 'active', activated_at = ?, released_at = NULL
+         WHERE id = ?
+           AND status = 'released'
+           AND (SELECT COUNT(*) FROM activations WHERE license_id = ? AND status = 'active') < ?`,
+      )
+      .bind(new Date().toISOString(), oldActivationId, license.id, license.max_machines)
       .run();
     return "max_reached";
   }
@@ -181,10 +197,21 @@ export async function upsertActiveActivationUnlimited(
     return;
   }
 
+  // Guarded with NOT EXISTS rather than a plain INSERT: without it, two
+  // concurrent requests for the same never-before-seen fingerprint can both
+  // observe no row above and both attempt the INSERT — the second hits the
+  // UNIQUE(license_id, fingerprint_hash) constraint and throws, surfacing as
+  // an unhandled 500. A no-op here just means a concurrent request already
+  // created the active row this one wanted; there's no seat cap to enforce
+  // on this dev-unlimited-only path, so nothing further to do either way.
   await db
     .prepare(
-      "INSERT INTO activations (id, license_id, fingerprint_hash, status, activated_at) VALUES (?, ?, ?, ?, ?)",
+      `INSERT INTO activations (id, license_id, fingerprint_hash, status, activated_at)
+       SELECT ?, ?, ?, 'active', ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM activations WHERE license_id = ? AND fingerprint_hash = ?
+       )`,
     )
-    .bind(generateId(), licenseId, fingerprint, "active", activatedAt)
+    .bind(generateId(), licenseId, fingerprint, activatedAt, licenseId, fingerprint)
     .run();
 }

@@ -28,7 +28,9 @@ status.post("/", async (c) => {
   } catch {
     return activationError(c, "invalid_key", 400);
   }
-  const { key } = body;
+  // See activate.ts: a `null` JSON body parses without throwing, so guard
+  // the destructure separately from the try/catch above.
+  const { key } = body ?? {};
 
   if (!isValidKey(key)) {
     return activationError(c, "invalid_key", 400);

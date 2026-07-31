@@ -27,7 +27,11 @@ activate.post("/", async (c) => {
     return activationError(c, "invalid_key", 400);
   }
 
-  const { key, fingerprint } = body;
+  // A body that's valid JSON but not an object (`null`, a bare number/string)
+  // parses without throwing, so the try/catch above doesn't catch it —
+  // destructuring `null` directly would throw a TypeError that falls through
+  // to the generic 500 handler instead of returning invalid_key 400.
+  const { key, fingerprint } = body ?? {};
 
   if (!isValidKey(key)) {
     return activationError(c, "invalid_key", 400);

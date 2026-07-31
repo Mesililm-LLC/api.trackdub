@@ -19,7 +19,9 @@ deactivate.post("/", async (c) => {
     return activationError(c, "invalid_key", 400);
   }
 
-  const { key, fingerprint } = body;
+  // See activate.ts: a `null` JSON body parses without throwing, so guard
+  // the destructure separately from the try/catch above.
+  const { key, fingerprint } = body ?? {};
 
   if (!isValidKey(key)) {
     return activationError(c, "invalid_key", 400);

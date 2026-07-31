@@ -117,6 +117,23 @@ export async function ensureActiveActivation(
 export type ReplaceSeatResult = "replaced" | "old_gone" | "max_reached";
 
 /**
+ * Release an active activation by id. Returns whether it was actually
+ * released (false if it was already released/gone — the caller decides what
+ * that means). Shared by the capped /reactivate path below and the
+ * dev-unlimited /reactivate path in routes/reactivate.ts, which must NOT
+ * route through {@link ensureActiveActivation}'s max_machines check the way
+ * {@link replaceActivationSeat} does.
+ */
+export async function releaseActivation(db: D1Database, activationId: string): Promise<boolean> {
+  const releasedAt = new Date().toISOString();
+  const releaseResult = await db
+    .prepare("UPDATE activations SET status = ?, released_at = ? WHERE id = ? AND status = ?")
+    .bind("released", releasedAt, activationId, "active")
+    .run();
+  return (releaseResult.meta.changes ?? 0) > 0;
+}
+
+/**
  * Replacement seat claim for /reactivate. Uses the same max_machines
  * predicate as ensureActiveActivation so a concurrent /activate that fills
  * the freed seat cannot leave activations above max_machines.
@@ -128,13 +145,7 @@ export async function replaceActivationSeat(
   newFingerprint: string,
   generateId: () => string,
 ): Promise<ReplaceSeatResult> {
-  const releasedAt = new Date().toISOString();
-  const releaseResult = await db
-    .prepare("UPDATE activations SET status = ?, released_at = ? WHERE id = ? AND status = ?")
-    .bind("released", releasedAt, oldActivationId, "active")
-    .run();
-
-  if ((releaseResult.meta.changes ?? 0) === 0) {
+  if (!(await releaseActivation(db, oldActivationId))) {
     return "old_gone";
   }
 

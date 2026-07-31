@@ -4,7 +4,7 @@ import { buildClaims, signLicenseToken } from "@/activation/lib/jwt";
 import { isDevUnlimitedLicenseKey } from "@/activation/lib/license-key";
 import { lookupLicenseByKey } from "@/activation/lib/license-lookup";
 import { activationError, isValidFingerprint, isValidKey } from "@/activation/lib/respond";
-import { getActiveMachineFingerprints, replaceActivationSeat } from "@/activation/lib/seats";
+import { getActiveMachineFingerprints, releaseActivation, replaceActivationSeat, upsertActiveActivationUnlimited } from "@/activation/lib/seats";
 import type { ActivationEnv } from "@/activation/types";
 
 export const reactivate = new Hono<ActivationEnv>();
@@ -56,26 +56,38 @@ reactivate.post("/", async (c) => {
     return activationError(c, "activation_not_found", 400);
   }
 
-  if (oldFingerprint !== newFingerprint) {
-    // Release + claim under max_machines (same predicate as /activate).
-    // Prevents an A→C race with a concurrent /activate D from leaving B+C+D active.
-    const swap = await replaceActivationSeat(
-      c.env.DB,
-      license,
-      oldActivation.id,
-      newFingerprint,
-      () => crypto.randomUUID(),
-    );
+  const devUnlimited = isDevUnlimitedLicenseKey(key, config.devLicensesEnabled);
 
-    if (swap === "old_gone") {
-      return activationError(c, "activation_not_found", 409);
-    }
-    if (swap === "max_reached") {
-      return activationError(c, "max_activations", 403, { max: license.max_machines });
+  if (oldFingerprint !== newFingerprint) {
+    if (devUnlimited) {
+      // Mirrors /activate's devUnlimited branch: must NOT route through
+      // replaceActivationSeat, which enforces max_machines via
+      // ensureActiveActivation — the dev-unlimited key is exempt from the
+      // seat cap everywhere else, so /reactivate can't be the one place it
+      // isn't.
+      if (!(await releaseActivation(c.env.DB, oldActivation.id))) {
+        return activationError(c, "activation_not_found", 409);
+      }
+      await upsertActiveActivationUnlimited(c.env.DB, license.id, newFingerprint, () => crypto.randomUUID());
+    } else {
+      // Release + claim under max_machines (same predicate as /activate).
+      // Prevents an A→C race with a concurrent /activate D from leaving B+C+D active.
+      const swap = await replaceActivationSeat(
+        c.env.DB,
+        license,
+        oldActivation.id,
+        newFingerprint,
+        () => crypto.randomUUID(),
+      );
+
+      if (swap === "old_gone") {
+        return activationError(c, "activation_not_found", 409);
+      }
+      if (swap === "max_reached") {
+        return activationError(c, "max_activations", 403, { max: license.max_machines });
+      }
     }
   }
-
-  const devUnlimited = isDevUnlimitedLicenseKey(key, config.devLicensesEnabled);
   const machines = await getActiveMachineFingerprints(c.env.DB, license.id);
   const claims = buildClaims({
     licenseId: license.id,

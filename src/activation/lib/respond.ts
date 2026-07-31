@@ -42,6 +42,13 @@ export function isValidFingerprint(value: unknown): value is string {
   return typeof value === "string" && FINGERPRINT_PATTERN.test(value);
 }
 
+// Real keys are 24 chars (TDUB-XXXX-XXXX-XXXX-XXXX); 128 is a generous cap
+// that still bounds the SHA-256 work `lookupLicenseByKey` does on every
+// request BEFORE any DB lookup can reject it — an unbounded non-empty check
+// would let an attacker force arbitrarily large hashing on an unauthenticated
+// endpoint.
+const MAX_KEY_LENGTH = 128;
+
 export function isValidKey(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_KEY_LENGTH;
 }

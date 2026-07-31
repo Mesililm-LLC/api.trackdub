@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "54cf3837-99dd-4d18-93ed-dadf39459c6e",
+  "id": "59d3fb1e-94ef-474a-86c3-95c6386d01d1",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "activations": {
@@ -60,6 +60,14 @@
             "fingerprint_hash"
           ],
           "isUnique": true
+        },
+        "activations_license_status_idx": {
+          "name": "activations_license_status_idx",
+          "columns": [
+            "license_id",
+            "status"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {

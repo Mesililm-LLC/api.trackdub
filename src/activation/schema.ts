@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 
 /**
  * D1 schema for the activation Worker. Ported from the archived reference
@@ -40,5 +40,12 @@ export const activations = sqliteTable(
       .default(sql`(datetime('now'))`),
     releasedAt: text("released_at"),
   },
-  (table) => [uniqueIndex("activations_license_fingerprint_unique").on(table.licenseId, table.fingerprintHash)],
+  (table) => [
+    uniqueIndex("activations_license_fingerprint_unique").on(table.licenseId, table.fingerprintHash),
+    // Seat accounting (ensureActiveActivation/replaceActivationSeat) and
+    // /status both filter by (license_id, status) on every request — the
+    // unique index above doesn't serve that, and without this a license with
+    // many historical `released` rows degrades to a scan.
+    index("activations_license_status_idx").on(table.licenseId, table.status),
+  ],
 );

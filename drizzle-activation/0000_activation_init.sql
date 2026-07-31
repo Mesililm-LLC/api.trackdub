@@ -9,6 +9,7 @@ CREATE TABLE `activations` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `activations_license_fingerprint_unique` ON `activations` (`license_id`,`fingerprint_hash`);--> statement-breakpoint
+CREATE INDEX `activations_license_status_idx` ON `activations` (`license_id`,`status`);--> statement-breakpoint
 CREATE TABLE `licenses` (
 	`id` text PRIMARY KEY NOT NULL,
 	`key_hash` text NOT NULL,

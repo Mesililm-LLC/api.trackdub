@@ -14,6 +14,7 @@ worker-configuration.d.ts
 
 # Logs
 *.log
+prod.txt
 
 # Test / coverage
 coverage

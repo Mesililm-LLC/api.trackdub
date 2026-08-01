@@ -23,7 +23,7 @@
     // is `wrangler secret put`. Update this + redeploy as the last step of
     // key rotation once add-key --make-current has flipped the ring's
     // CurrentKeyId (see docs/licensing/trust-ring-schema.md upstream).
-    "SIGNING_KEY_ID": "trackdub-prod-2026-08"
+    "SIGNING_KEY_ID": "trackdub-prod-2026-08b"
   },
   "d1_databases": [
     {

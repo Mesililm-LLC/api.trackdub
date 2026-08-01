@@ -133,6 +133,19 @@ npm run deploy:activation
 npm run deploy:activation:staging
 ```
 
+**This ordering (deploy before trust ring) is only correct for a first-time
+bootstrap, where no shipped desktop build trusts anything yet — there's no
+live key to protect.** For a real future rotation of an already-trusted key,
+reverse it: run step 5's `add-key` first (adding the new key without
+`--make-current` and shipping a new desktop release containing it), and only
+flip `SIGNING_KEY_ID` + redeploy here once that release has actually reached
+users — otherwise the server would start signing tokens with a `kid` no
+installed build can resolve yet. Note that even doing step 5 immediately
+before step 4 doesn't fully protect a live rotation on its own: `trust.json`
+is baked into each desktop build at package time, not fetched live, so the
+real lead time that matters is "a new desktop release has shipped and been
+adopted," not the few seconds between these two commands.
+
 ### 5. Add the public key to the desktop trust ring (in `Trackdub-gated`)
 
 ```bash

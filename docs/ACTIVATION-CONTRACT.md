@@ -82,9 +82,9 @@ keep a copy only in whatever secrets manager you use.
 ```bash
 mkdir -p ~/trackdub-keys-tmp
 dotnet run --project tools/Trackdub.Licensing.Tooling -- \
-  generate-key trackdub-prod-2026-08 ~/trackdub-keys-tmp
+  generate-key trackdub-prod-2026-08b ~/trackdub-keys-tmp
 dotnet run --project tools/Trackdub.Licensing.Tooling -- \
-  generate-key trackdub-staging-2026-08 ~/trackdub-keys-tmp
+  generate-key trackdub-staging-2026-08b ~/trackdub-keys-tmp
 ```
 
 Production and staging must use **different** keys — a staging-signed token
@@ -94,12 +94,12 @@ must never verify against the production trust ring.
 
 ```bash
 wrangler secret put SIGNING_KEY --config wrangler.activation.jsonc \
-  < ~/trackdub-keys-tmp/trackdub-prod-2026-08.private.pem
+  < ~/trackdub-keys-tmp/trackdub-prod-2026-08b.private.pem
 wrangler secret put ADMIN_API_TOKEN --config wrangler.activation.jsonc
 # paste output of: openssl rand -hex 32
 
 wrangler secret put SIGNING_KEY --config wrangler.activation.staging.jsonc \
-  < ~/trackdub-keys-tmp/trackdub-staging-2026-08.private.pem
+  < ~/trackdub-keys-tmp/trackdub-staging-2026-08b.private.pem
 wrangler secret put ADMIN_API_TOKEN --config wrangler.activation.staging.jsonc
 ```
 
@@ -138,8 +138,8 @@ npm run deploy:activation:staging
 ```bash
 dotnet run --project tools/Trackdub.Licensing.Tooling -- add-key \
   src/Trackdub.App.Avalonia/Licensing/production/trackdub.trust.json \
-  --key-id trackdub-prod-2026-08 \
-  --public-key ~/trackdub-keys-tmp/trackdub-prod-2026-08.public.pem \
+  --key-id trackdub-prod-2026-08b \
+  --public-key ~/trackdub-keys-tmp/trackdub-prod-2026-08b.public.pem \
   --issuer https://activate.trackdub.com \
   --audience trackdub-license-prod \
   --activation-endpoint https://activate.trackdub.com/activate \

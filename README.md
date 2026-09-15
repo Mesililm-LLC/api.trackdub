@@ -101,10 +101,11 @@ npm run typecheck                # tsc --noEmit
 
 6. **Verify:**
 
-   ```bash
-   curl https://api.trackdub.com/api/health      # 200, { status: "healthy", ... }
-   curl https://api.trackdub.com/api/version     # 200, build metadata
-   ```
+    ```bash
+    curl https://api.trackdub.com/api/health      # 200 { status: "healthy", ... }, or 503 { status: "degraded", ... } when D1 is down
+    curl https://api.trackdub.com/api/health/ready # 200 { status: "ready" }, or 503 { status: "unavailable", ... } when D1 is down
+    curl https://api.trackdub.com/api/version     # 200, build metadata from the CF_VERSION_METADATA binding ("unknown" locally)
+    ```
 
 ## Bootstrap the first user
 

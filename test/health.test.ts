@@ -18,6 +18,39 @@ describe("health endpoints", () => {
     expect(await res.json()).toMatchObject({ status: "ready" });
   });
 
+  it("GET /api/health/ready returns 503 when D1 is unreachable", async () => {
+    const broken = {
+      ...bindings,
+      DB: {
+        prepare: () => {
+          throw new Error("d1 down");
+        },
+      } as unknown as Bindings["DB"],
+    };
+    const res = await app.request("/api/health/ready", {}, broken);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({
+      status: "unavailable",
+      reason: "database_unreachable",
+    });
+  });
+
+  it("GET /api/health returns degraded with empty pipelines when D1 is unreachable", async () => {
+    const broken = {
+      ...bindings,
+      DB: {
+        prepare: () => {
+          throw new Error("d1 down");
+        },
+      } as unknown as Bindings["DB"],
+    };
+    const res = await app.request("/api/health", {}, broken);
+    expect(res.status).toBe(503);
+    const degraded = (await res.json()) as Record<string, unknown>;
+    expect(degraded.status).toBe("degraded");
+    expect(degraded.availablePipelines).toEqual([]);
+  });
+
   it("GET /api/health returns detailed status shaped to the portal contract", async () => {
     const res = await app.request("/api/health", {}, bindings);
     expect(res.status).toBe(200);

@@ -1,0 +1,9 @@
+{
+  "name": "api.trackdub",
+  "install": "npm ci",
+  "egressAllowlist": [
+    "registry.npmjs.org",
+    "api.cloudflare.com",
+    "dash.cloudflare.com"
+  ]
+}

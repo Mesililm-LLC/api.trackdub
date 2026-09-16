@@ -300,6 +300,14 @@ dubs.get("/:jobId/download", async (c) => {
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set("etag", object.httpEtag);
+  
+  // Validate Content-Type to prevent XSS via content type confusion
+  const contentType = object.httpMetadata?.contentType || headers.get("content-type") || "";
+  const allowedTypes = ["video/mp4", "video/quicktime", "video/x-matroska", "video/x-msvideo", "video/webm"];
+  if (!allowedTypes.some(t => contentType.startsWith(t))) {
+    throw ApiError.badRequest("Invalid output media type");
+  }
+  
   const safeName = row.projectName.replace(/[^\w.\- ]+/g, "_").slice(0, 80) || "output";
   headers.set("content-disposition", `attachment; filename="${safeName}.mp4"`);
 

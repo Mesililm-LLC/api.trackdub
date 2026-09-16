@@ -250,7 +250,7 @@ dubs.delete("/:jobId", async (c) => {
   }
 
   const now = new Date();
-  await db
+  const result = await db
     .update(dubJobs)
     .set({
       status: "Cancelled",
@@ -258,9 +258,21 @@ dubs.delete("/:jobId", async (c) => {
       completedAt: now,
       currentStage: null,
     })
-    .where(and(eq(dubJobs.id, jobId), eq(dubJobs.userId, user.id)));
+    .where(
+      and(
+        eq(dubJobs.id, jobId),
+        eq(dubJobs.userId, user.id),
+        // Atomic check: only update if still in cancellable state
+        sql`${dubJobs.status} IN ('Queued', 'Running')`
+      )
+    );
 
+  // Verify the update succeeded (status was still cancellable)
   const updated = await loadOwnedJob(db, user.id, jobId);
+  if (updated.status !== "Cancelled") {
+    throw ApiError.badRequest(`Cannot cancel a job in status ${updated.status}`);
+  }
+  
   return c.json(toDubJobDto(updated));
 });
 

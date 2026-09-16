@@ -95,8 +95,7 @@ dubs.post("/upload", async (c) => {
   const contentLength = c.req.header("content-length");
   if (contentLength) {
     const n = Number(contentLength);
-    if (Number.isFinite(n) && n > MAX_UPLOAD_BYTES + 1024 * 1024) {
-      // Leave a little headroom for multipart framing.
+    if (Number.isFinite(n) && n > MAX_UPLOAD_BYTES) {
       throw ApiError.payloadTooLarge("Upload exceeds the 100 MB Worker limit");
     }
   }

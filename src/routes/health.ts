@@ -51,7 +51,8 @@ health.get("/", async (c) => {
       processId: null,
       uptime: null,
       memoryMb: null,
-      availablePipelines: dbOk ? ["auth"] : [],
+      // "dubs" = job CRUD + R2 upload scaffold. Not a cloud inference pipeline yet.
+      availablePipelines: dbOk ? ["auth", "dubs"] : [],
     },
     dbOk ? 200 : 503,
   );

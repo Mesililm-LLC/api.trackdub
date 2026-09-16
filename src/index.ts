@@ -10,9 +10,10 @@ import { health } from "@/routes/health";
 import { version } from "@/routes/version";
 import { languages } from "@/routes/languages";
 import { admin } from "@/routes/admin";
+import { dubs } from "@/routes/dubs";
 import type { AppEnv } from "@/types/env";
 
-const app = new Hono<AppEnv>();
+const app = new Hono<AppEnv>({ strict: false });
 
 // --- Cross-cutting middleware (order matters) ---
 app.use("*", requestId);
@@ -54,6 +55,9 @@ app.route("/api/health", health);
 app.route("/api/version", version);
 app.route("/api/languages", languages);
 app.route("/api/admin", admin);
+// Portal CreateJobPage posts to `/api/dubs/` (trailing slash); strict:false on
+// the dubs sub-app accepts both `/api/dubs` and `/api/dubs/`.
+app.route("/api/dubs", dubs);
 
 // --- 404 + centralized error handling ---
 app.notFound((c) =>

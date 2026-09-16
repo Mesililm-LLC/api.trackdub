@@ -74,8 +74,17 @@ export function uploadObjectKey(userId: string, uploadId: string, fileName: stri
 export function isOwnedUploadPath(userId: string, objectKey: string): boolean {
   const prefix = `uploads/${userId}/`;
   if (!objectKey.startsWith(prefix)) return false;
-  if (objectKey.includes("..")) return false;
-  return objectKey.length > prefix.length;
+  
+  // Normalize path to catch encoded traversal attempts
+  const normalized = objectKey.replace(/%2e/gi, '.').replace(/%2f/gi, '/');
+  if (normalized.includes("..") || normalized.includes("./")) return false;
+  
+  // Ensure no path segments are empty and key doesn't escape prefix
+  const afterPrefix = objectKey.slice(prefix.length);
+  if (!afterPrefix || afterPrefix.includes("//")) return false;
+  
+  return true;
+}
 }
 
 export interface DubJobRow {

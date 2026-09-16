@@ -46,7 +46,7 @@ docs/               ARCHITECTURE.md, CONTRACT-MISMATCHES.md
 | `BETTER_AUTH_SECRET`  | secret  | `.dev.vars` (local) / `wrangler secret put` | ≥16 chars. `openssl rand -base64 32`. Signs sessions. |
 | `ADMIN_API_TOKEN`     | secret  | `.dev.vars` (local) / `wrangler secret put` | ≥16 chars. Guards the invite endpoint. |
 | `DB`                  | binding | `wrangler.jsonc` → `d1_databases`           | D1 database. |
-| `MEDIA`               | binding | `wrangler.jsonc` → `r2_buckets`             | R2 bucket (reserved for later). |
+| `MEDIA`               | binding | `wrangler.jsonc` → `r2_buckets`             | R2 bucket for `/api/dubs/upload` (and later download outputs). |
 
 Config is validated on first request (`src/config/env.ts`); anything missing or
 malformed fails fast with a clear, secret-free error.

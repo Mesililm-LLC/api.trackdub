@@ -372,6 +372,51 @@ describe("/api/dubs upload + create + list + cancel", () => {
     expect(bytes.length).toBeGreaterThan(0);
   });
 
+  it("names downloads with an extension matching the validated Content-Type", async () => {
+    const cookie = await signIn(USER.email, USER.password);
+    const filePath = await uploadMedia(cookie);
+
+    const create = await app.request(
+      "/api/dubs",
+      {
+        method: "POST",
+        headers: { ...jsonHeaders, Cookie: cookie },
+        body: JSON.stringify({
+          projectName: "WebmOut",
+          sourceLanguage: "en",
+          targetLanguage: "es",
+          inputMediaPath: filePath,
+        }),
+      },
+      bindings,
+    );
+    const created = (await create.json()) as { id: string };
+    const outputKey = `outputs/${created.id}/dubbed.webm`;
+    await bindings.MEDIA.put(outputKey, new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]), {
+      httpMetadata: { contentType: "video/webm" },
+    });
+    const db = createDb(bindings.DB);
+    await db
+      .update(dubJobs)
+      .set({
+        status: "Completed",
+        outputMediaPath: outputKey,
+        progressPercent: 100,
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(dubJobs.id, created.id));
+
+    const download = await app.request(
+      `/api/dubs/${created.id}/download`,
+      { headers: { Cookie: cookie } },
+      bindings,
+    );
+    expect(download.status).toBe(200);
+    expect(download.headers.get("content-type")).toBe("video/webm");
+    expect(download.headers.get("content-disposition")).toMatch(/WebmOut\.webm/);
+  });
+
   it("rejects cancel after the job leaves a cancellable status (atomic WHERE)", async () => {
     const cookie = await signIn(USER.email, USER.password);
     const filePath = await uploadMedia(cookie);

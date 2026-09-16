@@ -15,6 +15,8 @@ import {
   isKnownLanguageCode,
   isOwnedUploadPath,
   isSafeDownloadContentType,
+  extensionForDownloadContentType,
+  contentTypeForDownloadExtension,
   MAX_UPLOAD_BYTES,
   toDubJobDto,
   uploadObjectKey,
@@ -312,15 +314,20 @@ dubs.get("/:jobId/download", async (c) => {
 
   // Never trust stored metadata for browser sniffing: force a safe type,
   // attachment disposition, and nosniff so a hostile object cannot XSS.
+  // Derive filename extension from the validated type (or object key for
+  // octet-stream) so WebM/MOV/etc. are not always named .mp4.
   const rawBase = storedType!.split(";")[0]!.trim().toLowerCase();
-  const safeType = rawBase === "application/octet-stream" ? "video/mp4" : rawBase;
+  const ext = extensionForDownloadContentType(rawBase, row.outputMediaPath);
+  const responseType =
+    rawBase === "application/octet-stream"
+      ? contentTypeForDownloadExtension(ext)
+      : rawBase;
 
   const headers = new Headers();
-  headers.set("content-type", safeType);
+  headers.set("content-type", responseType);
   headers.set("x-content-type-options", "nosniff");
   headers.set("etag", object.httpEtag);
   const safeName = row.projectName.replace(/[^\w.\- ]+/g, "_").slice(0, 80) || "output";
-  const ext = safeType === "video/mp4" ? "mp4" : "bin";
   headers.set("content-disposition", `attachment; filename="${safeName}.${ext}"`);
 
   return new Response(object.body, { status: 200, headers });

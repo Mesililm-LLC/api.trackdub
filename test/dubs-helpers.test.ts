@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   MAX_UPLOAD_BYTES,
   contentLengthExceedsUploadLimit,
+  extensionForDownloadContentType,
   isOwnedUploadPath,
   isSafeDownloadContentType,
   uploadObjectKey,
@@ -15,11 +16,15 @@ describe("isOwnedUploadPath", () => {
     expect(isOwnedUploadPath(userId, key)).toBe(true);
   });
 
+  it("accepts filenames that contain .. as a substring, not a path segment", () => {
+    expect(isOwnedUploadPath(userId, `uploads/${userId}/upload-1/take..01.wav`)).toBe(true);
+  });
+
   it("rejects another user's prefix", () => {
     expect(isOwnedUploadPath(userId, "uploads/other/upload-1/clip.wav")).toBe(false);
   });
 
-  it("rejects plain .. traversal", () => {
+  it("rejects plain .. traversal segments", () => {
     expect(isOwnedUploadPath(userId, `uploads/${userId}/../secrets/key`)).toBe(false);
     expect(isOwnedUploadPath(userId, `uploads/${userId}/a/../../etc/passwd`)).toBe(false);
   });
@@ -61,6 +66,7 @@ describe("contentLengthExceedsUploadLimit", () => {
 describe("isSafeDownloadContentType", () => {
   it("allowlists media types and rejects html/js", () => {
     expect(isSafeDownloadContentType("video/mp4")).toBe(true);
+    expect(isSafeDownloadContentType("video/webm")).toBe(true);
     expect(isSafeDownloadContentType("video/mp4; charset=utf-8")).toBe(true);
     expect(isSafeDownloadContentType("application/octet-stream")).toBe(true);
     expect(isSafeDownloadContentType("text/html")).toBe(false);
@@ -68,5 +74,24 @@ describe("isSafeDownloadContentType", () => {
     expect(isSafeDownloadContentType("application/javascript")).toBe(false);
     expect(isSafeDownloadContentType(null)).toBe(false);
     expect(isSafeDownloadContentType(undefined)).toBe(false);
+  });
+});
+
+describe("extensionForDownloadContentType", () => {
+  it("maps validated media types to matching extensions", () => {
+    expect(extensionForDownloadContentType("video/mp4")).toBe("mp4");
+    expect(extensionForDownloadContentType("video/webm")).toBe("webm");
+    expect(extensionForDownloadContentType("video/quicktime")).toBe("mov");
+    expect(extensionForDownloadContentType("video/x-matroska")).toBe("mkv");
+    expect(extensionForDownloadContentType("audio/mpeg")).toBe("mp3");
+  });
+
+  it("uses object-key extension for octet-stream when safe", () => {
+    expect(
+      extensionForDownloadContentType("application/octet-stream", "outputs/j1/out.webm"),
+    ).toBe("webm");
+    expect(extensionForDownloadContentType("application/octet-stream", "outputs/j1/out.bin")).toBe(
+      "mp4",
+    );
   });
 });

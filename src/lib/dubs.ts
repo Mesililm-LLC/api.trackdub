@@ -34,10 +34,14 @@ export const ALLOWED_MEDIA_EXTENSIONS = new Set([
 
 /**
  * Content types we will serve from `/api/dubs/:id/download`.
- * Anything else is rejected rather than streamed with a misleading .mp4 name.
+ * Anything else is rejected rather than streamed with a misleading filename.
  */
 export const ALLOWED_DOWNLOAD_CONTENT_TYPES = new Set([
   "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-matroska",
+  "video/x-msvideo",
   "audio/mpeg",
   "audio/wav",
   "audio/x-wav",
@@ -45,6 +49,21 @@ export const ALLOWED_DOWNLOAD_CONTENT_TYPES = new Set([
   "audio/ogg",
   "application/octet-stream",
 ]);
+
+const EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+  "video/x-matroska": "mkv",
+  "video/x-msvideo": "avi",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/flac": "flac",
+  "audio/ogg": "ogg",
+};
+
+const ALLOWED_OUTPUT_EXTENSIONS = new Set(Object.values(EXTENSION_BY_CONTENT_TYPE));
 
 /**
  * Worker request-body limit for direct multipart upload. Portal UI advertises
@@ -111,15 +130,16 @@ function hasUnsafePathSegments(path: string): boolean {
  * True when the R2 key is under this user's upload prefix (path-traversal safe).
  *
  * Upload keys we mint are plain ASCII (`uploads/{userId}/{uuid}/{file}`). Reject
- * percent-encoding, `..`, backslashes, and any key that does not keep that
- * shape after full URI decode / slash normalization.
+ * percent-encoding, path segments equal to `.`/`..`, backslashes, and any key
+ * that does not keep that shape after full URI decode / slash normalization.
+ * Filenames may contain `..` as a substring (e.g. `take..01.wav`); only whole
+ * segments equal to `..` are treated as traversal.
  */
 export function isOwnedUploadPath(userId: string, objectKey: string): boolean {
   if (!userId || !objectKey) return false;
   if (objectKey.includes("\0") || objectKey.includes("\\")) return false;
   // Our minted keys never use percent-encoding; encoded forms are hostile.
   if (objectKey.includes("%") || objectKey.includes("+")) return false;
-  if (objectKey.includes("..")) return false;
   if (objectKey.startsWith("/") || hasUnsafePathSegments(objectKey)) return false;
 
   const decoded = decodeObjectKeyFully(objectKey);
@@ -152,6 +172,34 @@ export function isSafeDownloadContentType(contentType: string | undefined | null
   if (!contentType) return false;
   const base = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
   return ALLOWED_DOWNLOAD_CONTENT_TYPES.has(base);
+}
+
+/**
+ * Filename extension for a validated download Content-Type.
+ * For `application/octet-stream`, prefer a safe extension from `objectKey`
+ * when present; otherwise default to `mp4` (scaffold export shape).
+ */
+export function extensionForDownloadContentType(
+  contentType: string,
+  objectKey?: string | null,
+): string {
+  const base = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (base === "application/octet-stream") {
+    if (objectKey) {
+      const fromPath = mediaExtension(objectKey).replace(/^\./, "").toLowerCase();
+      if (ALLOWED_OUTPUT_EXTENSIONS.has(fromPath)) return fromPath;
+    }
+    return "mp4";
+  }
+  return EXTENSION_BY_CONTENT_TYPE[base] ?? "bin";
+}
+
+/** Map a validated download extension back to a Content-Type. */
+export function contentTypeForDownloadExtension(ext: string): string {
+  for (const [type, mapped] of Object.entries(EXTENSION_BY_CONTENT_TYPE)) {
+    if (mapped === ext) return type;
+  }
+  return "video/mp4";
 }
 
 export interface DubJobRow {

@@ -62,6 +62,18 @@ async function signIn(email: string, password: string): Promise<string> {
   return cookie!;
 }
 
+async function sessionUserId(cookie: string): Promise<string> {
+  const res = await app.request(
+    "/api/auth/session",
+    { headers: { Cookie: cookie } },
+    bindings,
+  );
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { user?: { id?: string } } | null;
+  expect(body?.user?.id).toBeTruthy();
+  return body!.user!.id!;
+}
+
 function tinyWavFile(name = "clip.wav"): File {
   // Minimal RIFF/WAVE header + silence payload — extension validated, content not.
   const bytes = new Uint8Array(44);
@@ -198,9 +210,11 @@ describe("/api/dubs upload + create + list + cancel", () => {
 
   it("rejects create when inputMediaPath is missing from R2 or owned by another user", async () => {
     const cookie = await signIn(USER.email, USER.password);
+    const userId = await sessionUserId(cookie);
     const otherCookie = await signIn(OTHER.email, OTHER.password);
     const otherPath = await uploadMedia(otherCookie);
 
+    // Owned prefix but object absent from R2 → MEDIA.head miss branch.
     const missing = await app.request(
       "/api/dubs",
       {
@@ -210,12 +224,14 @@ describe("/api/dubs upload + create + list + cancel", () => {
           projectName: "Missing",
           sourceLanguage: "en",
           targetLanguage: "fr",
-          inputMediaPath: `uploads/${crypto.randomUUID()}/nope.wav`,
+          inputMediaPath: `uploads/${userId}/${crypto.randomUUID()}/nope.wav`,
         }),
       },
       bindings,
     );
     expect(missing.status).toBe(400);
+    const missingBody = (await missing.json()) as { error: { message: string } };
+    expect(missingBody.error.message).toMatch(/does not exist in media storage/i);
 
     const stolen = await app.request(
       "/api/dubs",
@@ -232,6 +248,30 @@ describe("/api/dubs upload + create + list + cancel", () => {
       bindings,
     );
     expect(stolen.status).toBe(400);
+    const stolenBody = (await stolen.json()) as { error: { message: string } };
+    expect(stolenBody.error.message).toMatch(/not an upload owned by this user/i);
+  });
+
+  it("returns 400 for a malformed multipart upload body", async () => {
+    const cookie = await signIn(USER.email, USER.password);
+    const res = await app.request(
+      "/api/dubs/upload",
+      {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          Origin: PORTAL,
+          "Content-Type": "multipart/form-data; boundary=----broken",
+        },
+        // Truncated multipart: boundary declared but body is garbage.
+        body: "this-is-not-valid-multipart",
+      },
+      bindings,
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message.toLowerCase()).toMatch(/multipart|file/);
   });
 
   it("rejects unsupported upload types with 415", async () => {
@@ -454,5 +494,10 @@ describe("health advertises dubs scaffold", () => {
     const body = (await res.json()) as { availablePipelines: string[] };
     expect(body.availablePipelines).toContain("auth");
     expect(body.availablePipelines).toContain("dubs");
+  });
+
+  it("does not accept a trailing slash on health (root stays strict)", async () => {
+    const res = await app.request("/api/health/live/", {}, bindings);
+    expect(res.status).toBe(404);
   });
 });

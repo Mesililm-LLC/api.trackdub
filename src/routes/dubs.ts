@@ -100,7 +100,12 @@ dubs.post("/upload", async (c) => {
     throw ApiError.payloadTooLarge("Upload exceeds the 100 MB Worker limit");
   }
 
-  const body = await c.req.parseBody({ all: true });
+  let body: Awaited<ReturnType<typeof c.req.parseBody>>;
+  try {
+    body = await c.req.parseBody({ all: true });
+  } catch {
+    throw ApiError.badRequest("Malformed multipart body");
+  }
   const file = body["file"];
   if (!(file instanceof File)) {
     throw ApiError.badRequest('Expected multipart field "file"');

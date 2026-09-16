@@ -326,8 +326,124 @@ describe("/api/dubs upload + create + list + cancel", () => {
     );
     expect(download.status).toBe(200);
     expect(download.headers.get("content-disposition")).toMatch(/Ready\.mp4/);
+    expect(download.headers.get("content-type")).toBe("video/mp4");
+    expect(download.headers.get("x-content-type-options")).toBe("nosniff");
     const bytes = new Uint8Array(await download.arrayBuffer());
     expect(bytes.length).toBeGreaterThan(0);
+  });
+
+  it("rejects cancel after the job leaves a cancellable status (atomic WHERE)", async () => {
+    const cookie = await signIn(USER.email, USER.password);
+    const filePath = await uploadMedia(cookie);
+
+    const create = await app.request(
+      "/api/dubs",
+      {
+        method: "POST",
+        headers: { ...jsonHeaders, Cookie: cookie },
+        body: JSON.stringify({
+          projectName: "Race",
+          sourceLanguage: "en",
+          targetLanguage: "es",
+          inputMediaPath: filePath,
+        }),
+      },
+      bindings,
+    );
+    const created = (await create.json()) as { id: string };
+
+    // Simulate a worker finishing between our ownership load and cancel UPDATE.
+    const db = createDb(bindings.DB);
+    await db
+      .update(dubJobs)
+      .set({
+        status: "Completed",
+        progressPercent: 100,
+        completedAt: new Date(),
+        updatedAt: new Date(),
+        outputMediaPath: `outputs/${created.id}/dubbed.mp4`,
+      })
+      .where(eq(dubJobs.id, created.id));
+
+    const cancel = await app.request(
+      `/api/dubs/${created.id}`,
+      { method: "DELETE", headers: { Cookie: cookie, Origin: PORTAL } },
+      bindings,
+    );
+    expect(cancel.status).toBe(400);
+    const body = (await cancel.json()) as { error: { message: string } };
+    expect(body.error.message).toMatch(/Cannot cancel a job in status Completed/);
+
+    const detail = await app.request(
+      `/api/dubs/${created.id}`,
+      { headers: { Cookie: cookie } },
+      bindings,
+    );
+    const detailBody = (await detail.json()) as { status: string };
+    expect(detailBody.status).toBe("Completed");
+  });
+
+  it("refuses download when stored Content-Type is not a safe media type", async () => {
+    const cookie = await signIn(USER.email, USER.password);
+    const filePath = await uploadMedia(cookie);
+
+    const create = await app.request(
+      "/api/dubs",
+      {
+        method: "POST",
+        headers: { ...jsonHeaders, Cookie: cookie },
+        body: JSON.stringify({
+          projectName: "HtmlTrap",
+          sourceLanguage: "en",
+          targetLanguage: "fr",
+          inputMediaPath: filePath,
+        }),
+      },
+      bindings,
+    );
+    const created = (await create.json()) as { id: string };
+
+    const outputKey = `outputs/${created.id}/dubbed.mp4`;
+    await bindings.MEDIA.put(outputKey, "<script>alert(1)</script>", {
+      httpMetadata: { contentType: "text/html" },
+    });
+    const db = createDb(bindings.DB);
+    await db
+      .update(dubJobs)
+      .set({
+        status: "Completed",
+        outputMediaPath: outputKey,
+        progressPercent: 100,
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(dubJobs.id, created.id));
+
+    const download = await app.request(
+      `/api/dubs/${created.id}/download`,
+      { headers: { Cookie: cookie } },
+      bindings,
+    );
+    expect(download.status).toBe(415);
+  });
+
+  it("rejects create when inputMediaPath uses encoded path traversal", async () => {
+    const cookie = await signIn(USER.email, USER.password);
+    const res = await app.request(
+      "/api/dubs",
+      {
+        method: "POST",
+        headers: { ...jsonHeaders, Cookie: cookie },
+        body: JSON.stringify({
+          projectName: "Traversal",
+          sourceLanguage: "en",
+          targetLanguage: "es",
+          inputMediaPath: `uploads/%2e%2e/etc/passwd`,
+        }),
+      },
+      bindings,
+    );
+    expect(res.status).toBe(400);
   });
 });
 

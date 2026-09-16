@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { createDb } from "@/db/client";
 import { dubJobs } from "@/db/schema";
@@ -9,10 +9,12 @@ import { ApiError } from "@/lib/errors";
 import {
   CANCELLABLE_DUB_STATUSES,
   DUB_JOB_STATUSES,
+  contentLengthExceedsUploadLimit,
   isAllowedMediaFileName,
   isDubJobStatus,
   isKnownLanguageCode,
   isOwnedUploadPath,
+  isSafeDownloadContentType,
   MAX_UPLOAD_BYTES,
   toDubJobDto,
   uploadObjectKey,
@@ -92,12 +94,10 @@ async function loadOwnedJob(db: ReturnType<typeof createDb>, userId: string, job
 dubs.post("/upload", async (c) => {
   const user = requireUser(c);
 
-  const contentLength = c.req.header("content-length");
-  if (contentLength) {
-    const n = Number(contentLength);
-    if (Number.isFinite(n) && n > MAX_UPLOAD_BYTES) {
-      throw ApiError.payloadTooLarge("Upload exceeds the 100 MB Worker limit");
-    }
+  // Cap at MAX_UPLOAD_BYTES (not + framing slack). Multipart overhead means
+  // Content-Length is a slightly stricter early reject than file.size alone.
+  if (contentLengthExceedsUploadLimit(c.req.header("content-length"))) {
+    throw ApiError.payloadTooLarge("Upload exceeds the 100 MB Worker limit");
   }
 
   const body = await c.req.parseBody({ all: true });
@@ -119,6 +119,9 @@ dubs.post("/upload", async (c) => {
   const uploadId = crypto.randomUUID();
   const objectKey = uploadObjectKey(user.id, uploadId, file.name);
   const bytes = await file.arrayBuffer();
+  if (bytes.byteLength > MAX_UPLOAD_BYTES) {
+    throw ApiError.payloadTooLarge("Upload exceeds the 100 MB Worker limit");
+  }
 
   await c.env.MEDIA.put(objectKey, bytes, {
     httpMetadata: {
@@ -237,19 +240,19 @@ dubs.get("/:jobId", async (c) => {
 
 /**
  * DELETE /api/dubs/:jobId — cancel Queued or Running.
+ * Status check is in the UPDATE WHERE so a concurrent Completer cannot lose
+ * the race and get overwritten to Cancelled.
  */
 dubs.delete("/:jobId", async (c) => {
   const user = requireUser(c);
   const jobId = c.req.param("jobId");
   const db = createDb(c.env.DB);
-  const row = await loadOwnedJob(db, user.id, jobId);
 
-  if (!(CANCELLABLE_DUB_STATUSES as readonly string[]).includes(row.status)) {
-    throw ApiError.badRequest(`Cannot cancel a job in status ${row.status}`);
-  }
+  // Ownership 404 before attempting cancel.
+  await loadOwnedJob(db, user.id, jobId);
 
   const now = new Date();
-  const result = await db
+  const cancelled = await db
     .update(dubJobs)
     .set({
       status: "Cancelled",
@@ -261,17 +264,17 @@ dubs.delete("/:jobId", async (c) => {
       and(
         eq(dubJobs.id, jobId),
         eq(dubJobs.userId, user.id),
-        // Atomic check: only update if still in cancellable state
-        sql`${dubJobs.status} IN ('Queued', 'Running')`
-      )
-    );
+        inArray(dubJobs.status, [...CANCELLABLE_DUB_STATUSES]),
+      ),
+    )
+    .returning();
 
-  // Verify the update succeeded (status was still cancellable)
-  const updated = await loadOwnedJob(db, user.id, jobId);
-  if (updated.status !== "Cancelled") {
-    throw ApiError.badRequest(`Cannot cancel a job in status ${updated.status}`);
+  const updated = cancelled[0];
+  if (!updated) {
+    const current = await loadOwnedJob(db, user.id, jobId);
+    throw ApiError.badRequest(`Cannot cancel a job in status ${current.status}`);
   }
-  
+
   return c.json(toDubJobDto(updated));
 });
 
@@ -297,19 +300,23 @@ dubs.get("/:jobId/download", async (c) => {
     throw ApiError.notFound("Download not available");
   }
 
-  const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set("etag", object.httpEtag);
-  
-  // Validate Content-Type to prevent XSS via content type confusion
-  const contentType = object.httpMetadata?.contentType || headers.get("content-type") || "";
-  const allowedTypes = ["video/mp4", "video/quicktime", "video/x-matroska", "video/x-msvideo", "video/webm"];
-  if (!allowedTypes.some(t => contentType.startsWith(t))) {
-    throw ApiError.badRequest("Invalid output media type");
+  const storedType = object.httpMetadata?.contentType ?? null;
+  if (!isSafeDownloadContentType(storedType)) {
+    throw ApiError.unsupportedMediaType("Download content type is not a safe media type");
   }
-  
+
+  // Never trust stored metadata for browser sniffing: force a safe type,
+  // attachment disposition, and nosniff so a hostile object cannot XSS.
+  const rawBase = storedType!.split(";")[0]!.trim().toLowerCase();
+  const safeType = rawBase === "application/octet-stream" ? "video/mp4" : rawBase;
+
+  const headers = new Headers();
+  headers.set("content-type", safeType);
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("etag", object.httpEtag);
   const safeName = row.projectName.replace(/[^\w.\- ]+/g, "_").slice(0, 80) || "output";
-  headers.set("content-disposition", `attachment; filename="${safeName}.mp4"`);
+  const ext = safeType === "video/mp4" ? "mp4" : "bin";
+  headers.set("content-disposition", `attachment; filename="${safeName}.${ext}"`);
 
   return new Response(object.body, { status: 200, headers });
 });

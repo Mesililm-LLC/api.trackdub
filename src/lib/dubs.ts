@@ -33,6 +33,20 @@ export const ALLOWED_MEDIA_EXTENSIONS = new Set([
 ]);
 
 /**
+ * Content types we will serve from `/api/dubs/:id/download`.
+ * Anything else is rejected rather than streamed with a misleading .mp4 name.
+ */
+export const ALLOWED_DOWNLOAD_CONTENT_TYPES = new Set([
+  "video/mp4",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/flac",
+  "audio/ogg",
+  "application/octet-stream",
+]);
+
+/**
  * Worker request-body limit for direct multipart upload. Portal UI advertises
  * 5 GB; true multi-GB needs R2 multipart / direct-to-R2 later. Scaffold is
  * honest about the Worker bound.
@@ -70,21 +84,74 @@ export function uploadObjectKey(userId: string, uploadId: string, fileName: stri
   return `uploads/${userId}/${uploadId}/${sanitizeFileName(fileName)}`;
 }
 
-/** True when the R2 key is under this user's upload prefix (path-traversal safe). */
-export function isOwnedUploadPath(userId: string, objectKey: string): boolean {
-  const prefix = `uploads/${userId}/`;
-  if (!objectKey.startsWith(prefix)) return false;
-  
-  // Normalize path to catch encoded traversal attempts
-  const normalized = objectKey.replace(/%2e/gi, '.').replace(/%2f/gi, '/');
-  if (normalized.includes("..") || normalized.includes("./")) return false;
-  
-  // Ensure no path segments are empty and key doesn't escape prefix
-  const afterPrefix = objectKey.slice(prefix.length);
-  if (!afterPrefix || afterPrefix.includes("//")) return false;
-  
-  return true;
+/**
+ * Decode percent-encoding repeatedly so `%2e%2e` / double-encoding cannot hide
+ * `..` segments. Malformed encoding fails closed.
+ */
+function decodeObjectKeyFully(objectKey: string): string | null {
+  let current = objectKey;
+  for (let i = 0; i < 8; i++) {
+    try {
+      const next = decodeURIComponent(current.replace(/\+/g, "%20"));
+      if (next === current) return current;
+      current = next;
+    } catch {
+      return null;
+    }
+  }
+  // Still changing after many passes → treat as hostile.
+  return null;
 }
+
+function hasUnsafePathSegments(path: string): boolean {
+  return path.split("/").some((segment) => segment === "" || segment === "." || segment === "..");
+}
+
+/**
+ * True when the R2 key is under this user's upload prefix (path-traversal safe).
+ *
+ * Upload keys we mint are plain ASCII (`uploads/{userId}/{uuid}/{file}`). Reject
+ * percent-encoding, `..`, backslashes, and any key that does not keep that
+ * shape after full URI decode / slash normalization.
+ */
+export function isOwnedUploadPath(userId: string, objectKey: string): boolean {
+  if (!userId || !objectKey) return false;
+  if (objectKey.includes("\0") || objectKey.includes("\\")) return false;
+  // Our minted keys never use percent-encoding; encoded forms are hostile.
+  if (objectKey.includes("%") || objectKey.includes("+")) return false;
+  if (objectKey.includes("..")) return false;
+  if (objectKey.startsWith("/") || hasUnsafePathSegments(objectKey)) return false;
+
+  const decoded = decodeObjectKeyFully(objectKey);
+  if (decoded === null) return false;
+
+  const normalized = decoded.replace(/\\/g, "/").replace(/\/+/g, "/");
+  if (normalized !== objectKey) return false;
+  if (normalized.startsWith("/") || normalized.includes("\0")) return false;
+  if (hasUnsafePathSegments(normalized)) return false;
+
+  const prefix = `uploads/${userId}/`;
+  if (!normalized.startsWith(prefix)) return false;
+
+  // Expected shape: uploads/{userId}/{uploadId}/{fileName}[+ optional deeper]
+  const rest = normalized.split("/").slice(2);
+  return rest.length >= 2;
+}
+
+/** Early reject when Content-Length already exceeds the stated file-byte cap. */
+export function contentLengthExceedsUploadLimit(
+  contentLengthHeader: string | undefined,
+): boolean {
+  if (contentLengthHeader === undefined || contentLengthHeader === "") return false;
+  const n = Number(contentLengthHeader);
+  return Number.isFinite(n) && n > MAX_UPLOAD_BYTES;
+}
+
+/** Normalize and allowlist Content-Type for download responses. */
+export function isSafeDownloadContentType(contentType: string | undefined | null): boolean {
+  if (!contentType) return false;
+  const base = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  return ALLOWED_DOWNLOAD_CONTENT_TYPES.has(base);
 }
 
 export interface DubJobRow {

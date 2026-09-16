@@ -11,11 +11,9 @@ import type { AppEnv, Bindings } from "@/types/env";
 const bindings = env as unknown as Bindings;
 
 /**
- * No production route currently uses `requireAuth` in isolation (PR1's only
- * candidate, /api/languages, is intentionally public — see below). This
- * synthetic app exercises the middleware directly, the same pattern used for
- * `onError` in error.test.ts, so the 401 behavior stays covered without
- * inventing a fake production endpoint.
+ * Synthetic app still covers requireAuth in isolation. Production routes under
+ * `/api/dubs*` also mount it; these cases keep the middleware contract clear
+ * without depending on D1/R2 job fixtures.
  */
 function protectedTestApp() {
   const test = new Hono<AppEnv>();

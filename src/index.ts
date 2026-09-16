@@ -10,6 +10,7 @@ import { health } from "@/routes/health";
 import { version } from "@/routes/version";
 import { languages } from "@/routes/languages";
 import { admin } from "@/routes/admin";
+import { dubs } from "@/routes/dubs";
 import type { AppEnv } from "@/types/env";
 
 const app = new Hono<AppEnv>();
@@ -54,6 +55,11 @@ app.route("/api/health", health);
 app.route("/api/version", version);
 app.route("/api/languages", languages);
 app.route("/api/admin", admin);
+// Portal CreateJobPage posts to `/api/dubs/` (trailing slash). Keep the root
+// app strict (default) so health/auth/admin do not silently accept trailing
+// slashes; mount dubs at both paths and keep the dubs sub-app `strict: false`.
+app.route("/api/dubs", dubs);
+app.route("/api/dubs/", dubs);
 
 // --- 404 + centralized error handling ---
 app.notFound((c) =>

@@ -1,13 +1,10 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
 
 /**
- * Better Auth core schema (Drizzle / SQLite for D1).
+ * Better Auth core schema (Drizzle / SQLite for D1) plus application tables.
  *
- * Column names and shapes follow Better Auth's expected schema so the Drizzle
- * adapter maps cleanly. Only the tables Better Auth requires live here — no
- * application tables (dubs, billing, keys) until their PRs.
- *
- * Timestamps are stored as integer epoch-millis (`{ mode: "timestamp_ms" }`).
+ * Auth column names follow Better Auth so the Drizzle adapter maps cleanly.
+ * Timestamps are integer epoch-millis (`{ mode: "timestamp_ms" }`).
  */
 
 export const user = sqliteTable("user", {
@@ -60,4 +57,37 @@ export const verification = sqliteTable("verification", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-export const schema = { user, session, account, verification };
+/**
+ * Portal cloud dub jobs. Status strings match portal `JobStatus`.
+ * Processing is deferred: scaffold creates Queued rows; a later worker marks
+ * Running/Completed and writes `output_media_path`. Do not fake completion.
+ */
+export const dubJobs = sqliteTable(
+  "dub_jobs",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    projectName: text("project_name").notNull(),
+    sourceLanguage: text("source_language").notNull(),
+    targetLanguage: text("target_language").notNull(),
+    status: text("status").notNull().default("Queued"),
+    inputMediaPath: text("input_media_path").notNull(),
+    outputMediaPath: text("output_media_path"),
+    progressPercent: integer("progress_percent").notNull().default(0),
+    currentStage: text("current_stage"),
+    errorMessage: text("error_message"),
+    durationSeconds: integer("duration_seconds"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+  },
+  (table) => [
+    index("dub_jobs_user_id_idx").on(table.userId),
+    index("dub_jobs_user_status_idx").on(table.userId, table.status),
+    index("dub_jobs_user_created_idx").on(table.userId, table.createdAt),
+  ],
+);
+
+export const schema = { user, session, account, verification, dubJobs };

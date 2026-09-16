@@ -59,6 +59,32 @@ describe("health endpoints", () => {
     expect(body.environment).toBe("development");
     expect(body).toHaveProperty("timestamp");
     expect(body.availablePipelines).toContain("auth");
+    expect(body.availablePipelines).toContain("dubs");
+  });
+
+  it("GET /api/health omits dubs when dub_jobs table is missing", async () => {
+    const broken = {
+      ...bindings,
+      DB: {
+        prepare: (sql: string) => {
+          if (sql.includes("sqlite_master") && sql.includes("dub_jobs")) {
+            return {
+              first: async () => null,
+            };
+          }
+          if (sql.trim() === "SELECT 1") {
+            return {
+              first: async () => ({ "1": 1 }),
+            };
+          }
+          throw new Error(`unexpected sql: ${sql}`);
+        },
+      } as unknown as Bindings["DB"],
+    };
+    const res = await app.request("/api/health", {}, broken);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { availablePipelines: string[] };
+    expect(body.availablePipelines).toEqual(["auth"]);
   });
 
   it("attaches an x-request-id header", async () => {

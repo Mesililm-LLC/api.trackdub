@@ -47,6 +47,18 @@ export class ApiError extends Error {
     return new ApiError(404, "NOT_FOUND", message);
   }
 
+  static conflict(message = "Conflict"): ApiError {
+    return new ApiError(409, "CONFLICT", message);
+  }
+
+  static payloadTooLarge(message = "Payload too large"): ApiError {
+    return new ApiError(413, "PAYLOAD_TOO_LARGE", message);
+  }
+
+  static unsupportedMediaType(message = "Unsupported media type"): ApiError {
+    return new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", message);
+  }
+
   static internal(message = "Internal server error"): ApiError {
     return new ApiError(500, "INTERNAL", message);
   }

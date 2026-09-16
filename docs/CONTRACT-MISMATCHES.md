@@ -76,5 +76,8 @@ smallest compatible fix (no frontend change) or flagged for a decision.
 ## Endpoints NOT implemented in PR1 (later PRs)
 
 These exist in the portal contract but are deliberately out of scope for the
-foundation PR: `/api/dubs*`, `/api/billing/*`, `/api/webhooks*`, `/api/keys*`.
-The portal's hooks for these will 404 until their PRs land — expected.
+foundation PR: `/api/billing/*`, `/api/webhooks*`, `/api/keys*`.
+
+`/api/dubs*` is now scaffolded (upload → create Queued job → list/get/cancel;
+download returns 409 until a real pipeline marks Completed). Billing and
+webhook/key surfaces still 404 until their PRs land.

@@ -25,6 +25,21 @@ async function pingDb(db: D1Database): Promise<boolean> {
   }
 }
 
+/** True when the dub_jobs migration is present (not just D1 reachable). */
+async function dubsSchemaReady(db: D1Database): Promise<boolean> {
+  try {
+    const row = await db
+      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'dub_jobs' LIMIT 1")
+      .first<{ ok: number }>();
+    return row?.ok === 1;
+  } catch (err) {
+    logger.warn("dubs schema probe failed", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
 // Liveness: process is alive and routing works. No dependencies checked.
 health.get("/live", (c) => c.json({ status: "ok" }, 200));
 
@@ -40,6 +55,11 @@ health.get("/ready", async (c) => {
 health.get("/", async (c) => {
   const config = loadConfig(c.env);
   const dbOk = await pingDb(c.env.DB);
+  const dubsOk = dbOk ? await dubsSchemaReady(c.env.DB) : false;
+  const availablePipelines: string[] = [];
+  if (dbOk) availablePipelines.push("auth");
+  // "dubs" = job CRUD + R2 upload scaffold once dub_jobs exists. Not inference.
+  if (dubsOk) availablePipelines.push("dubs");
   return c.json(
     {
       status: dbOk ? "healthy" : "degraded",
@@ -51,7 +71,7 @@ health.get("/", async (c) => {
       processId: null,
       uptime: null,
       memoryMb: null,
-      availablePipelines: dbOk ? ["auth"] : [],
+      availablePipelines,
     },
     dbOk ? 200 : 503,
   );

@@ -6,16 +6,17 @@ and API routing. The portal (`portal.trackdub.com`) is a browser-only SPA that
 talks to this Worker with `credentials: "include"`; no backend logic lives in
 the portal.
 
-> **Scope:** This is **PR 1 — backend foundation**. It ships auth, health,
-> version, languages, and cross-cutting middleware. Dubs, billing, keys, and
-> webhooks are intentionally **not** implemented yet.
+> **Scope:** Auth, health, version, languages, admin invite, and the **dubs job
+> scaffold** (`/api/dubs*`: upload to R2, create/list/get/cancel Queued jobs).
+> Billing, keys, webhooks, and the real cloud dub pipeline worker are still
+> later work. Jobs do **not** auto-complete.
 
 ## Stack
 
 - **Cloudflare Workers** (`src/index.ts`, Hono app)
 - **Better Auth** — email/password, invite-only, host-only session cookies
 - **Cloudflare D1** (SQLite) via **Drizzle ORM** + Drizzle Kit migrations
-- **Cloudflare R2** bound for later media work (not used in PR1)
+- **Cloudflare R2** (`MEDIA` binding) — media uploads for `/api/dubs/upload`
 - **Zod** for config + request validation
 - **Vitest** (`@cloudflare/vitest-pool-workers`) — tests run in real `workerd`
 
@@ -45,7 +46,7 @@ docs/               ARCHITECTURE.md, CONTRACT-MISMATCHES.md
 | `BETTER_AUTH_SECRET`  | secret  | `.dev.vars` (local) / `wrangler secret put` | ≥16 chars. `openssl rand -base64 32`. Signs sessions. |
 | `ADMIN_API_TOKEN`     | secret  | `.dev.vars` (local) / `wrangler secret put` | ≥16 chars. Guards the invite endpoint. |
 | `DB`                  | binding | `wrangler.jsonc` → `d1_databases`           | D1 database. |
-| `MEDIA`               | binding | `wrangler.jsonc` → `r2_buckets`             | R2 bucket (reserved for later). |
+| `MEDIA`               | binding | `wrangler.jsonc` → `r2_buckets`             | R2 bucket for `/api/dubs/upload` (and later download outputs). |
 
 Config is validated on first request (`src/config/env.ts`); anything missing or
 malformed fails fast with a clear, secret-free error.

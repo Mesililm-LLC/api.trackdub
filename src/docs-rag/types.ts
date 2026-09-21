@@ -69,6 +69,11 @@ export interface DocsRagSearchResult {
   chunks?: DocsRagSearchChunk[];
 }
 
+/** Validated text response from the non-streaming REST chat endpoint (not a result envelope). */
+export interface DocsRagChatResult extends DocsRagSearchResult {
+  choices: [{ message: { content: string } }, ...unknown[]];
+}
+
 /** Rate limiting bindings (wrangler.jsonc `ratelimits`). */
 export interface RateLimitResult {
   success: boolean;

@@ -1,6 +1,7 @@
 import { filterForScope, isDocScope, SYSTEM_PROMPT, type DocScope } from "@/docs-rag/scopes";
 import type {
   DocsRagBindings,
+  DocsRagChatResult,
   DocsRagSearchChunk,
   DocsRagSearchResult,
 } from "@/docs-rag/types";
@@ -45,9 +46,57 @@ function hits(result: DocsRagSearchResult) {
   }));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSearchResult(value: unknown): value is DocsRagSearchResult {
+  return isRecord(value) && Array.isArray(value.chunks) && value.chunks.every((chunk: unknown) =>
+    isRecord(chunk) &&
+    (chunk.text == null || typeof chunk.text === "string") &&
+    (chunk.score == null || (typeof chunk.score === "number" && Number.isFinite(chunk.score))) &&
+    (chunk.item == null || (isRecord(chunk.item) && (chunk.item.key == null || typeof chunk.item.key === "string")))
+  ) && (value.search_query == null || typeof value.search_query === "string");
+}
+
+function isChatResult(value: unknown): value is DocsRagChatResult {
+  if (!isRecord(value) || !isSearchResult(value) || !Array.isArray(value.choices)) return false;
+  const choice: unknown = value.choices[0];
+  return isRecord(choice) && isRecord(choice.message) && typeof choice.message.content === "string";
+}
+
+/** Check HTTP and API errors before either endpoint can interpret empty results as success. */
+async function readAiSearchResponse(response: Response, endpoint: string): Promise<Record<string, unknown>> {
+  const detail = await response.text().catch(() => "");
+  let payload: unknown;
+  try {
+    payload = JSON.parse(detail);
+  } catch {
+    payload = null;
+  }
+  const errors = isRecord(payload) && Array.isArray(payload.errors) ? payload.errors : [];
+  const error = isRecord(payload) ? payload.error : undefined;
+  // Parse JSON rather than matching serialized text: whitespace is insignificant.
+  if (response.status === 429 || [payload, error, ...errors].some((entry) => isRecord(entry) && entry.code === 2003)) {
+    throw new RateLimitedError();
+  }
+  if (!response.ok) {
+    throw new Error(`AI Search ${endpoint} ${response.status}: ${detail.slice(0, 300)}`);
+  }
+  if (!isRecord(payload)) {
+    throw new Error(`AI Search ${endpoint}: invalid JSON response`);
+  }
+  if ((payload.success !== undefined && payload.success !== true) || payload.error != null ||
+    (payload.errors != null && (!Array.isArray(payload.errors) || payload.errors.length > 0))) {
+    throw new Error(`AI Search ${endpoint} error: ${detail.slice(0, 300)}`);
+  }
+  return payload;
+}
+
 interface AiSearchRetrievalOptions {
   filters?: ReturnType<typeof filterForScope>;
   max_num_results: number;
+  keyword_match_mode: "and" | "or";
 }
 
 /**
@@ -62,11 +111,7 @@ async function aiSearchRest(
   options: AiSearchRetrievalOptions,
 ): Promise<DocsRagSearchResult> {
   const token = env.AI_SEARCH_API_TOKEN;
-  const body: Record<string, unknown> = {
-    query,
-    max_num_results: options.max_num_results,
-    ...(options.filters ? { ai_search_options: { retrieval: { filters: options.filters } } } : {}),
-  };
+  const body = { query, ai_search_options: { retrieval: options } };
   const url =
     `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}` +
     `/ai-search/instances/${env.AI_SEARCH_INSTANCE}/search`;
@@ -78,64 +123,69 @@ async function aiSearchRest(
     },
     body: JSON.stringify(body),
   });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    // AI Search's own upstream limiter (code 2003) signals backpressure to
-    // clients as 429 rather than 503 so MCP clients apply Retry-After.
-    if (response.status === 429 || detail.includes('"code":2003')) {
-      throw new RateLimitedError();
-    }
-    throw new Error(`AI Search REST ${response.status}: ${detail.slice(0, 300)}`);
-  }
-  const payload = (await response.json()) as { success?: boolean; result?: DocsRagSearchResult; errors?: unknown };
-  if (!payload.success || !payload.result) {
-    throw new Error(`AI Search REST error: ${JSON.stringify(payload.errors ?? payload).slice(0, 300)}`);
+  const payload = await readAiSearchResponse(response, "REST");
+  if (payload.success !== true || !isSearchResult(payload.result)) {
+    throw new Error("AI Search REST: malformed search result");
   }
   console.log(
-    `[docs-rag] search instance=${env.AI_SEARCH_INSTANCE} query=${JSON.stringify(query).slice(0, 120)} filters=${JSON.stringify(options.filters ?? null)} chunks=${payload.result.chunks?.length ?? 0}`,
+    `[docs-rag] search instance=${env.AI_SEARCH_INSTANCE} query=${JSON.stringify(query).slice(0, 120)} filters=${JSON.stringify(options.filters ?? null)} chunks=${payload.result.chunks?.length ?? 0} matchMode=${options.keyword_match_mode}`,
   );
   return payload.result;
 }
 
 export async function searchDocs(env: DocsRagBindings, request: SearchRequest, clientKey?: string) {
   const filters = filterForScope(request.scope);
-  const result = await aiSearchRest(env, request.query, {
+  const strict = await aiSearchRest(env, request.query, {
     filters,
     max_num_results: request.limit,
+    keyword_match_mode: "and",
   });
-  return { scope: request.scope, hits: hits(result) };
+  if ((strict.chunks?.length ?? 0) > 0) {
+    return { scope: request.scope, matchMode: "and" as const, hits: hits(strict) };
+  }
+  // Only a validated empty result permits one looser keyword search.
+  // Errors propagate; scope and limit never broaden on fallback.
+  const loose = await aiSearchRest(env, request.query, {
+    filters,
+    max_num_results: request.limit,
+    keyword_match_mode: "or",
+  });
+  return { scope: request.scope, matchMode: "or-fallback" as const, hits: hits(loose) };
 }
 
 export async function askDocs(env: DocsRagBindings, request: SearchRequest, clientKey?: string) {
-  // Generation via the legacy binding (aiSearch) is fine for model output,
-  // but scoped retrieval must go through REST for folder filters. Fall back
-  // to unscoped binding generation when the token lacks REST access is NOT
-  // supported: scopes are enforced here, so a REST failure is a hard error.
+  // Retrieve and generate in one scoped request so citations belong to this answer.
   const filters = filterForScope(request.scope);
-  const retrieval = await aiSearchRest(env, request.query, {
-    filters,
-    max_num_results: request.limit,
+  const chatUrl =
+    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}` +
+    `/ai-search/instances/${env.AI_SEARCH_INSTANCE}/chat/completions`;
+  const chatResponse = await fetch(chatUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.AI_SEARCH_API_TOKEN}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: request.query },
+      ],
+      model: env.AI_SEARCH_MODEL,
+      ai_search_options: {
+        // Cloudflare uses the first user message as-is, even with rewriting enabled.
+        query_rewrite: { enabled: true },
+        retrieval: { max_num_results: request.limit, ...(filters ? { filters } : {}) },
+      },
+    }),
   });
-  const context = retrieval.chunks ?? [];
-  // The legacy `aiSearch` binding predates Vectorize-style range filters and
-  // rejects them ("Invalid input"), so generation runs unscoped; scope
-  // enforcement stays on the retrieval side via the REST call above.
-  const answer = await env.AI.autorag(env.AI_SEARCH_INSTANCE).aiSearch({
-    query: request.query,
-    model: env.AI_SEARCH_MODEL,
-    system_prompt: SYSTEM_PROMPT,
-    max_num_results: request.limit,
-    rewrite_query: true,
-    ranking_options: { score_threshold: 0.4 },
-  });
-  // Return REST-retrieved (scope-enforced) chunks, not the binding's own
-  // unscoped retrieval, so scope guarantees hold for ask as well.
+  const chat = await readAiSearchResponse(chatResponse, "chat");
+  if (!isChatResult(chat)) {
+    throw new Error("AI Search chat: malformed completion (expected chunks and message content)");
+  }
   return {
     scope: request.scope,
-    searchQuery: answer.search_query ?? request.query,
-    answer: answer.response ?? "",
-    hits: hits({
-      chunks: context.map((chunk) => chunk),
-    } as DocsRagSearchResult),
+    searchQuery: chat.search_query ?? null,
+    answer: chat.choices[0].message.content,
+    hits: hits(chat),
   };
 }

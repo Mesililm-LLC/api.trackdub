@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "trackdub-docs-rag",
+  "main": "src/docs-rag/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "workers_dev": true,
+  "ai": {
+    "binding": "AI"
+  },
+  "r2_buckets": [
+    {
+      "binding": "CORPUS",
+      "bucket_name": "trackdub-docs-corpus"
+    }
+  ],
+  "vars": {
+    "AI_SEARCH_INSTANCE": "trackdub-docs",
+    "AI_SEARCH_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "CF_ACCOUNT_ID": "21cac5947e11018d571c18792118b8b0"
+  }
+}

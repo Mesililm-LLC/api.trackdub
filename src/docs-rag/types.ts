@@ -41,6 +41,15 @@ export interface AutoRagAiSearchResponse extends AutoRagSearchResponse {
   response?: string;
 }
 
+export interface AutoRagBinding {
+  search(options: AutoRagSearchOptions): Promise<AutoRagSearchResponse>;
+  aiSearch(options: AutoRagAiSearchOptions): Promise<AutoRagAiSearchResponse>;
+}
+
+export interface AiWithAutoRag {
+  autorag(instance: string): AutoRagBinding;
+}
+
 /** New AI Search REST API response shape (Vectorize-style chunks). */
 export interface DocsRagSearchChunk {
   id?: string;
@@ -60,13 +69,13 @@ export interface DocsRagSearchResult {
   chunks?: DocsRagSearchChunk[];
 }
 
-export interface AutoRagBinding {
-  search(options: AutoRagSearchOptions): Promise<AutoRagSearchResponse>;
-  aiSearch(options: AutoRagAiSearchOptions): Promise<AutoRagAiSearchResponse>;
+/** Rate limiting bindings (wrangler.jsonc `ratelimits`). */
+export interface RateLimitResult {
+  success: boolean;
 }
 
-export interface AiWithAutoRag {
-  autorag(instance: string): AutoRagBinding;
+export interface RateLimiterBinding {
+  limit(options: { key: string }): Promise<RateLimitResult>;
 }
 
 export interface DocsRagBindings {
@@ -77,6 +86,12 @@ export interface DocsRagBindings {
   DOCS_RAG_TOKEN: string;
   AI_SEARCH_API_TOKEN: string;
   CF_ACCOUNT_ID: string;
+  /** Burst limiter: 10s window. */
+  RL_BURST: RateLimiterBinding;
+  /** Steady-state limiter: 60s window. */
+  RL_STEADY: RateLimiterBinding;
+  /** Expensive `ask` limiter: 10s window, tighter cap. */
+  RL_ASK: RateLimiterBinding;
 }
 
 export type DocsRagEnv = {

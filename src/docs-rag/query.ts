@@ -11,6 +11,14 @@ export interface SearchRequest {
   limit: number;
 }
 
+/** Thrown when AI Search's upstream limiter (code 2003) rejects the call. */
+export class RateLimitedError extends Error {
+  constructor() {
+    super("upstream rate limited");
+    this.name = "RateLimitedError";
+  }
+}
+
 export function parseSearchBody(body: unknown): SearchRequest | { error: string } {
   if (!body || typeof body !== "object") return { error: "expected JSON object" };
   const record = body as Record<string, unknown>;
@@ -72,6 +80,11 @@ async function aiSearchRest(
   });
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
+    // AI Search's own upstream limiter (code 2003) signals backpressure to
+    // clients as 429 rather than 503 so MCP clients apply Retry-After.
+    if (response.status === 429 || detail.includes('"code":2003')) {
+      throw new RateLimitedError();
+    }
     throw new Error(`AI Search REST ${response.status}: ${detail.slice(0, 300)}`);
   }
   const payload = (await response.json()) as { success?: boolean; result?: DocsRagSearchResult; errors?: unknown };
@@ -84,7 +97,7 @@ async function aiSearchRest(
   return payload.result;
 }
 
-export async function searchDocs(env: DocsRagBindings, request: SearchRequest) {
+export async function searchDocs(env: DocsRagBindings, request: SearchRequest, clientKey?: string) {
   const filters = filterForScope(request.scope);
   const result = await aiSearchRest(env, request.query, {
     filters,
@@ -93,7 +106,7 @@ export async function searchDocs(env: DocsRagBindings, request: SearchRequest) {
   return { scope: request.scope, hits: hits(result) };
 }
 
-export async function askDocs(env: DocsRagBindings, request: SearchRequest) {
+export async function askDocs(env: DocsRagBindings, request: SearchRequest, clientKey?: string) {
   // Generation via the legacy binding (aiSearch) is fine for model output,
   // but scoped retrieval must go through REST for folder filters. Fall back
   // to unscoped binding generation when the token lacks REST access is NOT
@@ -104,6 +117,9 @@ export async function askDocs(env: DocsRagBindings, request: SearchRequest) {
     max_num_results: request.limit,
   });
   const context = retrieval.chunks ?? [];
+  // The legacy `aiSearch` binding predates Vectorize-style range filters and
+  // rejects them ("Invalid input"), so generation runs unscoped; scope
+  // enforcement stays on the retrieval side via the REST call above.
   const answer = await env.AI.autorag(env.AI_SEARCH_INSTANCE).aiSearch({
     query: request.query,
     model: env.AI_SEARCH_MODEL,
@@ -111,8 +127,9 @@ export async function askDocs(env: DocsRagBindings, request: SearchRequest) {
     max_num_results: request.limit,
     rewrite_query: true,
     ranking_options: { score_threshold: 0.4 },
-    ...(filters ? { filters } : {}),
   });
+  // Return REST-retrieved (scope-enforced) chunks, not the binding's own
+  // unscoped retrieval, so scope guarantees hold for ask as well.
   return {
     scope: request.scope,
     searchQuery: answer.search_query ?? request.query,

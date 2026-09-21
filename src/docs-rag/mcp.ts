@@ -1,102 +1,139 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import { DOC_SCOPES } from "@/docs-rag/scopes";
-import { askDocs, parseSearchBody, searchDocs } from "@/docs-rag/query";
+import { askDocs, searchDocs, RateLimitedError, type SearchRequest } from "@/docs-rag/query";
+import { getDocText } from "@/docs-rag/corpus";
 import type { DocsRagBindings } from "@/docs-rag/types";
 
-interface JsonRpcRequest {
-  jsonrpc?: string;
-  id?: string | number | null;
-  method?: string;
-  params?: unknown;
+const SCOPE_DESCRIPTION = DOC_SCOPES.join(", ");
+
+export interface ToolResult {
+  [key: string]: unknown;
+  content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
 }
 
-const TOOLS = [
-  {
-    name: "search_trackdub_docs",
-    description:
-      "Hybrid search over Trackdub, Trackdub-gated, api.trackdub, and pinned vendor docs (NVIDIA TRT-RTX, WinML, AMD, Intel, Qualcomm, Qwen, Whisper, ONNX Runtime). Prefer this for implementation facts. Scope filters the R2 folder.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string" },
-        scope: { type: "string", enum: [...DOC_SCOPES] },
-        limit: { type: "integer", minimum: 1, maximum: 20 },
-      },
-      required: ["query"],
+function textResult(payload: unknown): ToolResult {
+  return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
+}
+
+function errorResult(message: string): ToolResult {
+  return { content: [{ type: "text", text: message }], isError: true };
+}
+
+/**
+ * Build a fresh stateless MCP server. MCP SDK >= 1.26 requires a new
+ * McpServer per request (no shared instance across transports), so callers
+ * invoke this inside the request handler.
+ */
+export function createDocsRagServer(env: DocsRagBindings, clientKey: string): McpServer {
+  const server = new McpServer(
+    {
+      name: "trackdub-docs-rag",
+      version: "0.2.0",
     },
-  },
-  {
-    name: "ask_trackdub_docs",
-    description:
-      "Answer from the same corpus using Workers AI. First-party Trackdub docs outrank vendor pages. Does not claim readiness the retrieved text does not state.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string" },
-        scope: { type: "string", enum: [...DOC_SCOPES] },
-        limit: { type: "integer", minimum: 1, maximum: 20 },
-      },
-      required: ["query"],
+    {
+      instructions:
+        "Curated Trackdub + vendor documentation search (R2 corpus indexed by Cloudflare AI Search). " +
+        "Covers Trackdub, Trackdub-gated, api.trackdub first-party docs and pinned vendor docs " +
+        "(NVIDIA TRT-RTX/EP ABI, Windows ML, ONNX Runtime EPs, AMD, Intel, Qualcomm, Qwen, Whisper, speech models). " +
+        "First-party text outranks vendor /latest/ pages on disagreement. Trackdub pins TensorRT-RTX EP ABI 0.3.0 cu12.",
     },
-  },
-];
+  );
 
-function rpcResult(id: JsonRpcRequest["id"], result: unknown): Response {
-  return Response.json({ jsonrpc: "2.0", id: id ?? null, result });
+  const searchShape = {
+    query: z.string().min(1).describe("Search text. Implementation-detail queries work best (API names, flags, file names)."),
+    scope: z
+      .enum(DOC_SCOPES)
+      .optional()
+      .describe(`Restrict to one corpus section. Values: ${SCOPE_DESCRIPTION}. Omit for all.`),
+    limit: z.number().int().min(1).max(20).optional().describe("Max chunks (default 8)."),
+  };
+
+  server.registerTool(
+    "search_trackdub_docs",
+    {
+      title: "Search Trackdub docs",
+      description:
+        "Hybrid (vector+keyword) search over Trackdub and pinned vendor docs. Returns ranked chunks with R2 keys and scores. Use for implementation facts: provider registration, EP ABI details, pin versions, pipeline stages.",
+      inputSchema: searchShape,
+    },
+    async (args, _extra): Promise<ToolResult> => {
+      const parsed = parseArgs(args as Record<string, unknown>);
+      if ("error" in parsed) return errorResult(parsed.error);
+      try {
+        const result = await searchDocs(env, parsed, clientKey);
+        return textResult(result);
+      } catch (error) {
+        if (error instanceof RateLimitedError) {
+          return errorResult("rate limited: too many requests. Retry after ~10s.");
+        }
+        return errorResult(error instanceof Error ? error.message : "search failed");
+      }
+    },
+  );
+
+  server.registerTool(
+    "ask_trackdub_docs",
+    {
+      title: "Ask Trackdub docs",
+      description:
+        "Answer a question from the corpus using Workers AI generation with retrieved context. Slower and rate-limited tighter than search; prefer search_trackdub_docs when you just need chunks. Answers state when the corpus lacks the answer.",
+      inputSchema: searchShape,
+    },
+    async (args, _extra): Promise<ToolResult> => {
+      const parsed = parseArgs(args as Record<string, unknown>);
+      if ("error" in parsed) return errorResult(parsed.error);
+      try {
+        const result = await askDocs(env, parsed, clientKey);
+        return textResult(result);
+      } catch (error) {
+        return errorResult(error instanceof Error ? error.message : "ask failed");
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_trackdub_doc",
+    {
+      title: "Get full Trackdub doc",
+      description:
+        "Fetch the full text of one corpus document by its R2 key (item.key from search hits). Use after a search when chunks are truncated and you need the complete page (max ~4 MB per file).",
+      inputSchema: {
+        key: z
+          .string()
+          .min(1)
+          .describe('R2 object key, e.g. "first-party/trackdub/docs/reference/tensorrt-rtx-ep-abi-plugin.md".'),
+        max_chars: z.number().int().min(500).max(200000).optional().describe("Truncation cap (default 50000)."),
+      },
+    },
+    async (args, _extra): Promise<ToolResult> => {
+      const record = args as Record<string, unknown>;
+      const key = typeof record.key === "string" ? record.key : "";
+      const maxChars = typeof record.max_chars === "number" ? Math.trunc(record.max_chars) : 50000;
+      if (!key || key.includes("..")) return errorResult("invalid key");
+      try {
+        const doc = await getDocText(env, key, maxChars);
+        return textResult(doc);
+      } catch (error) {
+        return errorResult(error instanceof Error ? error.message : "get failed");
+      }
+    },
+  );
+
+  return server;
 }
 
-function rpcError(id: JsonRpcRequest["id"], code: number, message: string): Response {
-  return Response.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } });
-}
+type ParsedArgs = SearchRequest | { error: string };
 
-export async function handleMcp(request: Request, env: DocsRagBindings): Promise<Response> {
-  let body: JsonRpcRequest;
-  try {
-    body = (await request.json()) as JsonRpcRequest;
-  } catch {
-    return rpcError(null, -32700, "parse error");
-  }
-
-  const method = body.method ?? "";
-  switch (method) {
-    case "initialize":
-      return rpcResult(body.id, {
-        protocolVersion: "2025-03-26",
-        capabilities: { tools: {} },
-        serverInfo: { name: "trackdub-docs-rag", version: "0.1.0" },
-      });
-    case "notifications/initialized":
-    case "ping":
-      return rpcResult(body.id, {});
-    case "tools/list":
-      return rpcResult(body.id, { tools: TOOLS });
-    case "tools/call":
-      return callTool(body, env);
-    default:
-      return rpcError(body.id, -32601, `unknown method: ${method}`);
-  }
-}
-
-async function callTool(body: JsonRpcRequest, env: DocsRagBindings): Promise<Response> {
-  const params = body.params;
-  if (!params || typeof params !== "object") return rpcError(body.id, -32602, "missing params");
-  const record = params as Record<string, unknown>;
-  const name = record.name;
-  const args = record.arguments ?? {};
-  if (name !== "search_trackdub_docs" && name !== "ask_trackdub_docs") {
-    return rpcError(body.id, -32602, "unknown tool");
-  }
-  const parsed = parseSearchBody(args);
-  if ("error" in parsed) return rpcError(body.id, -32602, parsed.error);
-  try {
-    const payload = name === "search_trackdub_docs" ? await searchDocs(env, parsed) : await askDocs(env, parsed);
-    return rpcResult(body.id, {
-      content: [{ type: "text", text: JSON.stringify(payload) }],
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "search failed";
-    return rpcResult(body.id, {
-      isError: true,
-      content: [{ type: "text", text: message }],
-    });
-  }
+function parseArgs(args: Record<string, unknown>): ParsedArgs {
+  const query = args.query;
+  if (typeof query !== "string" || query.trim().length === 0) return { error: "query is required" };
+  const scopeRaw = args.scope;
+  const scope = typeof scopeRaw === "string" ? scopeRaw : "all";
+  if (!(DOC_SCOPES as readonly string[]).includes(scope)) return { error: `unknown scope: ${scope}` };
+  const limitRaw = args.limit;
+  const limit = typeof limitRaw === "number" && Number.isFinite(limitRaw) ? Math.trunc(limitRaw) : 8;
+  if (limit < 1 || limit > 20) return { error: "limit must be 1..20" };
+  return { query: query.trim(), scope, limit } as SearchRequest;
 }

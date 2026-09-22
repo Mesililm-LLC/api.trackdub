@@ -176,15 +176,18 @@ function requestBodies(fetchStub: ReturnType<typeof stubFetch>) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("docs-rag REST search", () => {
-  it("sends explicit scoped AND retrieval and maps nonempty chunks without retry", async () => {
-    const fetchStub = stubFetch(searchResponse([sourceChunk, { score: 0, text: "x".repeat(4001) }, {}]));
+  it("sends AND and OR scoped retrieval together and maps nonempty chunks without retry", async () => {
+    const fetchStub = stubFetch(
+      searchResponse([sourceChunk, { score: 0, text: "x".repeat(4001) }, {}]),
+      searchResponse([]),
+    );
 
     expect(await searchDocs(queryEnv, { ...scopedRequest, limit: 20 })).toEqual({
       scope: "nvidia",
-      matchMode: "and",
+      matchMode: "union",
       hits: [sourceHit, { score: 0, key: null, text: "x".repeat(4000) }, { score: null, key: null, text: "" }],
     });
-    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(fetchStub).toHaveBeenCalledTimes(2);
     expect(fetchStub.mock.calls[0]).toEqual([
       `${apiUrl}/search`,
       {
@@ -203,14 +206,21 @@ describe("docs-rag REST search", () => {
         keyword_match_mode: "and",
         filters: { folder: { $gte: "vendor/nvidia/", $lt: "vendor/nvidia0" } },
       } },
+    }, {
+      query: "TRT RTX plugin",
+      ai_search_options: { retrieval: {
+        max_num_results: 20,
+        keyword_match_mode: "or",
+        filters: { folder: { $gte: "vendor/nvidia/", $lt: "vendor/nvidia0" } },
+      } },
     }]);
   });
 
-  it("retries an empty successful AND result once with OR, preserving query, scope and limit", async () => {
+  it("keeps query, scope and limit when AND is empty and OR supplies the results", async () => {
     const fetchStub = stubFetch(searchResponse([]), searchResponse([sourceChunk]));
 
     expect(await searchDocs(queryEnv, scopedRequest)).toEqual({
-      scope: "nvidia", matchMode: "or-fallback", hits: [sourceHit],
+      scope: "nvidia", matchMode: "union", hits: [sourceHit],
     });
     expect(fetchStub.mock.calls.map(([url]) => url)).toEqual([`${apiUrl}/search`, `${apiUrl}/search`]);
     expect(requestBodies(fetchStub)).toEqual([
@@ -231,16 +241,69 @@ describe("docs-rag REST search", () => {
     ]);
   });
 
-  it("stops after both results are empty and keeps all unfiltered at limit 1", async () => {
-    const fetchStub = stubFetch(searchResponse([]), searchResponse([]));
+  it("keeps OR-only results when AND already fills the limit with weaker matches", async () => {
+    const and = ["one", "two", "three", "four"].map((name) => ({
+      ...sourceChunk, id: `and-${name}`, text: `AND-only passage ${name}.`,
+    }));
+    const or = [
+      { ...sourceChunk, id: "or-one", text: "AND-only passage one." },
+      { ...sourceChunk, id: "or-two", text: "AND-only passage two." },
+      { ...sourceChunk, id: "or-five", text: "OR-only high rank passage." },
+      { ...sourceChunk, id: "or-three", text: "AND-only passage three." },
+    ];
+    const fetchStub = stubFetch(searchResponse(and), searchResponse(or));
+
+    const result = await searchDocs(queryEnv, { ...scopedRequest, limit: 4 });
+    expect(result.matchMode).toBe("union");
+    expect(result.hits.map(hit => hit.text)).toEqual([
+      "AND-only passage one.", "AND-only passage two.", "AND-only passage three.", "OR-only high rank passage.",
+    ]);
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+  });
+
+  it("collapses mirrored chunks with identical text so they cannot consume the result budget", async () => {
+    const mirrored = [
+      { ...sourceChunk, id: "own", text: "Download policy install versus session.", item: { key: "first-party/trackdub/docs/reference/x.md" } },
+      { ...sourceChunk, id: "mirror", text: "Download  policy\ninstall versus session.", item: { key: "first-party/trackdub/docs/reference/reference.md" } },
+      { ...sourceChunk, id: "uniq", text: "Unique operations guidance.", item: { key: "first-party/trackdub/docs/operations/y.md" } },
+    ];
+    const fetchStub = stubFetch(searchResponse(mirrored), searchResponse([]));
+
+    const result = await searchDocs(queryEnv, { query: "download policy", scope: "first-party", limit: 2 });
+    expect(result.hits.map(hit => hit.key)).toEqual([
+      "first-party/trackdub/docs/reference/x.md", "first-party/trackdub/docs/operations/y.md",
+    ]);
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps distinct passages that share a document key, and blank passages that share nothing", async () => {
+    const chunks = [
+      { ...sourceChunk, id: "c1", text: "First passage." },
+      { ...sourceChunk, id: "c2", text: "Second passage." },
+      { ...sourceChunk, id: "c3", text: "  " },
+      { ...sourceChunk, id: "c4", text: "" },
+    ];
+    stubFetch(searchResponse(chunks), searchResponse([]));
+
+    const result = await searchDocs(queryEnv, { ...scopedRequest, limit: 4 });
+    expect(result.hits.map(hit => hit.text)).toEqual(["First passage.", "Second passage.", "  ", ""]);
+  });
+
+  it("stops after both source groups are empty under AND and OR at limit 1", async () => {
+    const fetchStub = stubFetch(searchResponse([]), searchResponse([]), searchResponse([]), searchResponse([]));
 
     expect(await searchDocs(queryEnv, { query: "rare term", scope: "all", limit: 1 })).toEqual({
-      scope: "all", matchMode: "or-fallback", hits: [],
+      scope: "all", matchMode: "union", hits: [],
     });
-    expect(fetchStub).toHaveBeenCalledTimes(2);
     expect(requestBodies(fetchStub)).toEqual([
-      { query: "rare term", ai_search_options: { retrieval: { max_num_results: 1, keyword_match_mode: "and" } } },
-      { query: "rare term", ai_search_options: { retrieval: { max_num_results: 1, keyword_match_mode: "or" } } },
+      { query: "rare term", ai_search_options: { retrieval: { max_num_results: 1, keyword_match_mode: "and",
+        filters: { folder: { $gte: "first-party/", $lt: "first-party0" } } } } },
+      { query: "rare term", ai_search_options: { retrieval: { max_num_results: 1, keyword_match_mode: "and",
+        filters: { folder: { $gte: "vendor/", $lt: "vendor0" } } } } },
+      { query: "rare term", ai_search_options: { retrieval: { max_num_results: 1, keyword_match_mode: "or",
+        filters: { folder: { $gte: "first-party/", $lt: "first-party0" } } } } },
+      { query: "rare term", ai_search_options: { retrieval: { max_num_results: 1, keyword_match_mode: "or",
+        filters: { folder: { $gte: "vendor/", $lt: "vendor0" } } } } },
     ]);
   });
 
@@ -266,15 +329,18 @@ describe("docs-rag REST search", () => {
   });
 
   it("does not return semantic-only candidates or substrings inside other identifiers", async () => {
-    const fetchStub = stubFetch(searchResponse([]), searchResponse([]), searchResponse([
-      { ...sourceChunk, text: "Register a library." },
-      { ...sourceChunk, text: "DeregisterExecutionProviderLibrary" },
-      { ...sourceChunk, text: "x".repeat(4001) + " RegisterExecutionProviderLibrary" },
-    ]));
+    const fetchStub = stubFetch(
+      searchResponse([]), searchResponse([]), searchResponse([]), searchResponse([]), searchResponse([]),
+      searchResponse([
+        { ...sourceChunk, text: "Register a library." },
+        { ...sourceChunk, text: "DeregisterExecutionProviderLibrary" },
+        { ...sourceChunk, text: "x".repeat(4001) + " RegisterExecutionProviderLibrary" },
+      ]),
+    );
     expect(await searchDocs(queryEnv, { query: "RegisterExec", scope: "all", limit: 3 })).toEqual({
       scope: "all", matchMode: "symbol-fallback", hits: [],
     });
-    expect(fetchStub).toHaveBeenCalledTimes(3);
+    expect(fetchStub).toHaveBeenCalledTimes(6);
   });
 
   it.each(["ordinary", "why does this fail", "abc", "X".repeat(129), "foo.*"])(
@@ -294,9 +360,9 @@ describe("docs-rag REST search", () => {
     expect(fetchStub).toHaveBeenCalledTimes(3);
   });
 
-  it("does not bypass reranking when ordinary OR already returned symbol results", async () => {
+  it("does not bypass reranking when the AND/OR union already returned symbol results", async () => {
     const fetchStub = stubFetch(searchResponse([]), searchResponse([sourceChunk]));
-    expect((await searchDocs(queryEnv, { ...scopedRequest, query: "RegisterExec" })).matchMode).toBe("or-fallback");
+    expect((await searchDocs(queryEnv, { ...scopedRequest, query: "RegisterExec" })).matchMode).toBe("union");
     expect(fetchStub).toHaveBeenCalledTimes(2);
   });
 
@@ -317,7 +383,122 @@ describe("docs-rag REST search", () => {
   ])("rejects %s without treating it as an empty result", async (_name, payload) => {
     const fetchStub = stubFetch(Response.json(payload), searchResponse([]));
     await expect(searchDocs(queryEnv, scopedRequest)).rejects.toThrow();
-    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("docs-rag first-party ordering", () => {
+  const firstParty = [
+    { ...sourceChunk, id: "first-1", score: 0.51, text: "First-party core plugin guidance.", item: { key: "first-party/trackdub/a.md" } },
+    { ...sourceChunk, id: "first-2", score: 0.79, text: "First-party API plugin guidance.", item: { key: "first-party/api/b.md" } },
+  ];
+  const vendors = [
+    { ...sourceChunk, id: "vendor-1", score: 0.95, text: "NVIDIA plugin guidance." },
+    { ...sourceChunk, id: "vendor-2", score: 0.99, text: "Microsoft plugin guidance.", item: { key: "vendor/microsoft/c.md" } },
+  ];
+
+  it.each([
+    { limit: 1, keys: ["first-party/trackdub/a.md"], scores: [0.51] },
+    { limit: 3, keys: ["first-party/trackdub/a.md", "first-party/api/b.md", "vendor/nvidia/plugin.md"], scores: [0.51, 0.79, 0.95] },
+    { limit: 20, keys: ["first-party/trackdub/a.md", "first-party/api/b.md", "vendor/nvidia/plugin.md", "vendor/microsoft/c.md"], scores: [0.51, 0.79, 0.95, 0.99] },
+  ])("puts first-party before higher-scoring vendors without reordering either group at limit $limit", async ({ limit, keys, scores }) => {
+    const fetchStub = vi.fn<typeof fetch>(async (_url, init) => {
+      const { ai_search_options: { retrieval } } = JSON.parse(String(init?.body));
+      const chunks = retrieval.filters?.folder.$gte === "first-party/" ? firstParty : vendors;
+      return searchResponse(chunks.slice(0, retrieval.max_num_results));
+    });
+    vi.stubGlobal("fetch", fetchStub);
+
+    const result = await searchDocs(queryEnv, { query: "runtime cache", scope: "all", limit });
+    expect(result.scope).toBe("all");
+    expect(result.matchMode).toBe("union");
+    expect(result.hits.map(hit => hit.key)).toEqual(keys);
+    expect(result.hits.map(hit => hit.score)).toEqual(scores);
+    expect(requestBodies(fetchStub)).toEqual([
+      { query: "runtime cache", ai_search_options: { retrieval: { max_num_results: limit, keyword_match_mode: "and",
+        filters: { folder: { $gte: "first-party/", $lt: "first-party0" } } } } },
+      { query: "runtime cache", ai_search_options: { retrieval: { max_num_results: limit, keyword_match_mode: "and",
+        filters: { folder: { $gte: "vendor/", $lt: "vendor0" } } } } },
+      { query: "runtime cache", ai_search_options: { retrieval: { max_num_results: limit, keyword_match_mode: "or",
+        filters: { folder: { $gte: "first-party/", $lt: "first-party0" } } } } },
+      { query: "runtime cache", ai_search_options: { retrieval: { max_num_results: limit, keyword_match_mode: "or",
+        filters: { folder: { $gte: "vendor/", $lt: "vendor0" } } } } },
+    ]);
+  });
+
+  it("keeps first-party ahead of vendors when only the OR requests return results", async () => {
+    const fetchStub = stubFetch(searchResponse([]), searchResponse([]), searchResponse(firstParty), searchResponse(vendors));
+    const result = await searchDocs(queryEnv, { query: "runtime cache", scope: "all", limit: 3 });
+    expect(result.matchMode).toBe("union");
+    expect(result.hits.map(hit => hit.key)).toEqual([
+      "first-party/trackdub/a.md", "first-party/api/b.md", "vendor/nvidia/plugin.md",
+    ]);
+    expect(requestBodies(fetchStub).map(body => body.ai_search_options.retrieval.keyword_match_mode)).toEqual(["and", "and", "or", "or"]);
+  });
+
+  it("keeps one-sided first-party matches without adding empty vendor noise", async () => {
+    const fetchStub = stubFetch(searchResponse(firstParty), searchResponse([]), searchResponse([]), searchResponse([]));
+    const result = await searchDocs(queryEnv, { query: "runtime cache", scope: "all", limit: 3 });
+    expect(result.matchMode).toBe("union");
+    expect(result.hits.map(hit => hit.key)).toEqual(["first-party/trackdub/a.md", "first-party/api/b.md"]);
+    expect(fetchStub).toHaveBeenCalledTimes(4);
+  });
+
+  it.each([1, 3])("filters symbol candidates before applying first-party ordering and limit %s", async (limit) => {
+    const fetchStub = stubFetch(
+      searchResponse([]), searchResponse([]), searchResponse([]), searchResponse([]),
+      searchResponse([
+        { ...firstParty[0], text: "Register a plugin." },
+        { ...firstParty[0], text: "RegisterExecutionProviderLibrary in core." },
+        { ...firstParty[1], text: "Call OrtEnv.RegisterExecutionProviderLibrary()." },
+      ]),
+      searchResponse([{ ...vendors[0], text: "RegisterExecutionProviderLibrary in vendor docs." }]),
+    );
+    const result = await searchDocs(queryEnv, { query: "RegisterExec", scope: "all", limit });
+    expect(result.matchMode).toBe("symbol-fallback");
+    expect(result.hits.map(hit => hit.text)).toEqual(limit === 1
+      ? ["RegisterExecutionProviderLibrary in core."]
+      : ["RegisterExecutionProviderLibrary in core.", "Call OrtEnv.RegisterExecutionProviderLibrary().", "RegisterExecutionProviderLibrary in vendor docs."]);
+    expect(requestBodies(fetchStub).slice(4)).toEqual([
+      { query: "RegisterExec", ai_search_options: { cache: { enabled: false }, reranking: { enabled: false },
+        retrieval: { max_num_results: 20, keyword_match_mode: "or", retrieval_type: "hybrid",
+          filters: { folder: { $gte: "first-party/", $lt: "first-party0" } } } } },
+      { query: "RegisterExec", ai_search_options: { cache: { enabled: false }, reranking: { enabled: false },
+        retrieval: { max_num_results: 20, keyword_match_mode: "or", retrieval_type: "hybrid",
+          filters: { folder: { $gte: "vendor/", $lt: "vendor0" } } } } },
+    ]);
+  });
+
+  it("leaves explicit first-party scope restricted and preserves upstream order", async () => {
+    const fetchStub = stubFetch(searchResponse(firstParty), searchResponse([]));
+    const result = await searchDocs(queryEnv, { query: "runtime cache", scope: "first-party", limit: 3 });
+    expect(result.hits.map(hit => hit.key)).toEqual(["first-party/trackdub/a.md", "first-party/api/b.md"]);
+    expect(requestBodies(fetchStub)).toEqual([
+      { query: "runtime cache", ai_search_options: { retrieval: { max_num_results: 3, keyword_match_mode: "and",
+        filters: { folder: { $gte: "first-party/", $lt: "first-party0" } } } } },
+      { query: "runtime cache", ai_search_options: { retrieval: { max_num_results: 3, keyword_match_mode: "or",
+        filters: { folder: { $gte: "first-party/", $lt: "first-party0" } } } } },
+    ]);
+  });
+
+  it.each(["first-party/", "vendor/"])("does not hide %s failures behind results from the other group", async (failingPrefix) => {
+    const fetchStub = vi.fn<typeof fetch>(async (_url, init) => {
+      const prefix = JSON.parse(String(init?.body)).ai_search_options.retrieval.filters?.folder.$gte;
+      return prefix === failingPrefix ? new Response("unavailable", { status: 503 }) : searchResponse([sourceChunk]);
+    });
+    vi.stubGlobal("fetch", fetchStub);
+    await expect(searchDocs(queryEnv, { query: "runtime cache", scope: "all", limit: 3 })).rejects.toThrow("503");
+    expect(fetchStub).toHaveBeenCalledTimes(4);
+  });
+
+  it("preserves all-scope answer text and citation order from the single chat response", async () => {
+    const fetchStub = stubFetch(Response.json({ ...chatPayload(), chunks: [...vendors, ...firstParty] }));
+    const result = await askDocs(queryEnv, { query: "runtime cache", scope: "all", limit: 20 });
+    expect(result.answer).toBe("Use the plugin.");
+    expect(result.hits.map(hit => hit.key)).toEqual([
+      "vendor/nvidia/plugin.md", "vendor/microsoft/c.md", "first-party/trackdub/a.md", "first-party/api/b.md",
+    ]);
+    expect(fetchStub.mock.calls.map(([url]) => url)).toEqual([`${apiUrl}/chat/completions`]);
   });
 });
 
@@ -420,27 +601,27 @@ const upstreamFailures = [
 ];
 
 describe.each([
-  { name: "search", run: searchDocs, path: "search" },
-  { name: "chat", run: askDocs, path: "chat/completions" },
-])("docs-rag $name errors", ({ run, path }) => {
+  { name: "search", run: searchDocs, path: "search", requests: 2 },
+  { name: "chat", run: askDocs, path: "chat/completions", requests: 1 },
+])("docs-rag $name errors", ({ run, path, requests }) => {
   it.each(upstreamFailures)("propagates $name without fallback", async ({ status, body, rateLimited }) => {
-    const fetchStub = stubFetch(new Response(body, { status }));
+    const fetchStub = stubFetch(...Array.from({ length: requests }, () => new Response(body, { status })));
     const result = run(queryEnv, scopedRequest);
     await expect(result).rejects.toThrow(rateLimited ? RateLimitedError : Error);
     if (!rateLimited) await expect(result).rejects.not.toBeInstanceOf(RateLimitedError);
-    expect(fetchStub.mock.calls.map(([url]) => url)).toEqual([`${apiUrl}/${path}`]);
+    expect(fetchStub.mock.calls.map(([url]) => url)).toEqual(Array(requests).fill(`${apiUrl}/${path}`));
   });
 
   it("propagates transport failure without fallback", async () => {
     const failure = new Error("connection failed");
-    const fetchStub = stubFetch(failure);
+    const fetchStub = stubFetch(...Array.from({ length: requests }, () => failure));
     await expect(run(queryEnv, scopedRequest)).rejects.toBe(failure);
-    expect(fetchStub.mock.calls.map(([url]) => url)).toEqual([`${apiUrl}/${path}`]);
+    expect(fetchStub.mock.calls.map(([url]) => url)).toEqual(Array(requests).fill(`${apiUrl}/${path}`));
   });
 });
 
-describe("docs-rag OR fallback errors", () => {
-  it.each(upstreamFailures)("propagates $name from fallback without a third request", async ({ status, body, rateLimited }) => {
+describe("docs-rag OR request errors", () => {
+  it.each(upstreamFailures)("propagates $name from the OR request without a third request", async ({ status, body, rateLimited }) => {
     const fetchStub = stubFetch(searchResponse([]), new Response(body, { status }));
     const result = searchDocs(queryEnv, scopedRequest);
     await expect(result).rejects.toThrow(rateLimited ? RateLimitedError : Error);
@@ -449,7 +630,7 @@ describe("docs-rag OR fallback errors", () => {
     expect(requestBodies(fetchStub)[1].ai_search_options.retrieval.keyword_match_mode).toBe("or");
   });
 
-  it("propagates transport failure from fallback", async () => {
+  it("propagates transport failure from the OR request", async () => {
     const failure = new Error("fallback connection failed");
     const fetchStub = stubFetch(searchResponse([]), failure);
     await expect(searchDocs(queryEnv, scopedRequest)).rejects.toBe(failure);

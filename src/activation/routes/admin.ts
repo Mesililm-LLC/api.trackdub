@@ -23,7 +23,7 @@ export const admin = new Hono<ActivationEnv>();
 
 const mintSchema = z.object({
   email: z.string().email(),
-  tier: z.string().min(1).max(50).optional(),
+  tier: z.enum(["free", "pro"]).optional(),
   maxMachines: z.number().int().min(1).max(50).optional(),
 });
 

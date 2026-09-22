@@ -33,21 +33,10 @@ export default defineConfig(async () => {
       }),
     ],
     test: {
-      globals: true,
       // Excludes test/activation/** — that suite runs under its own D1 schema
       // and bindings via vitest.activation.config.ts (`npm run test:activation`).
       include: ["test/*.test.ts"],
       setupFiles: ["./test/apply-migrations.ts"],
-      // Better Auth's sign-in route (node_modules/better-auth/dist/api/routes/
-      // sign-in.mjs) throws an `APIError` for invalid credentials that is
-      // correctly caught and turned into our 401 response, but better-call's
-      // internal endpoint wrapper independently surfaces the same rejection a
-      // second time, which Vitest 4's stricter unhandled-rejection tracking
-      // flags even though no test assertion is affected (verified: all status
-      // codes and bodies assert correctly). Upstream library behavior, not
-      // ours — suppressed so real unhandled errors in our own code still fail
-      // the run.
-      dangerouslyIgnoreUnhandledErrors: true,
     },
   };
 });

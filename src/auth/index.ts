@@ -3,7 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createDb } from "@/db/client";
 import { schema } from "@/db/schema";
 import { loadConfig } from "@/config/env";
-import { logger } from "@/lib/logger";
+import { sendPasswordResetEmail } from "@/lib/mail";
 import type { Bindings } from "@/types/env";
 
 export type Auth = ReturnType<typeof createAuth>;
@@ -37,14 +37,12 @@ export function createAuth(env: Bindings) {
       disableSignUp: true, // invite-only
       requireEmailVerification: false,
       revokeSessionsOnPasswordReset: true,
-      sendResetPassword: async ({ user, url, token }) => {
-        // PR1 ships no email provider. Log that a reset was requested; include
-        // the link only outside production so local/staging flows are testable.
-        const isProd = config.public.APP_ENV === "production";
-        logger.info("password reset requested", {
-          userId: user.id,
-          ...(isProd ? {} : { resetUrl: url, token }),
-        });
+      sendResetPassword: async ({ user, url }) => {
+        // Token is never logged — only the recipient and (in non-prod) the URL.
+        await sendPasswordResetEmail(
+          { to: user.email, userName: user.name ?? null, resetUrl: url },
+          env.RESEND_API_KEY,
+        );
       },
     },
     advanced: {

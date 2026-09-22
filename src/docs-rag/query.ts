@@ -48,6 +48,8 @@ function hits(result: DocsRagSearchResult) {
 interface AiSearchRetrievalOptions {
   filters?: ReturnType<typeof filterForScope>;
   max_num_results: number;
+  /** Per-request keyword mode override; instance default is "and". */
+  keywordMatchMode?: "and" | "or";
 }
 
 /**
@@ -62,10 +64,14 @@ async function aiSearchRest(
   options: AiSearchRetrievalOptions,
 ): Promise<DocsRagSearchResult> {
   const token = env.AI_SEARCH_API_TOKEN;
+  const retrieval: Record<string, unknown> = {};
+  if (options.keywordMatchMode) retrieval.keyword_match_mode = options.keywordMatchMode;
   const body: Record<string, unknown> = {
     query,
     max_num_results: options.max_num_results,
-    ...(options.filters ? { ai_search_options: { retrieval: { filters: options.filters } } } : {}),
+    ...(options.filters || options.keywordMatchMode
+      ? { ai_search_options: { retrieval: { ...retrieval, ...(options.filters ? { filters: options.filters } : {}) } } }
+      : {}),
   };
   const url =
     `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}` +
@@ -99,43 +105,78 @@ async function aiSearchRest(
 
 export async function searchDocs(env: DocsRagBindings, request: SearchRequest, clientKey?: string) {
   const filters = filterForScope(request.scope);
-  const result = await aiSearchRest(env, request.query, {
+  const strict = await aiSearchRest(env, request.query, {
     filters,
     max_num_results: request.limit,
   });
-  return { scope: request.scope, hits: hits(result) };
+  if ((strict.chunks?.length ?? 0) > 0) {
+    return { scope: request.scope, matchMode: "and" as const, hits: hits(strict) };
+  }
+  // Strict "and" keyword matching returned nothing: retry once with "or" so
+  // multi-term queries with one rare term still surface candidates. Vector
+  // hits are unaffected; only the keyword side loosens.
+  const loose = await aiSearchRest(env, request.query, {
+    filters,
+    max_num_results: request.limit,
+    keywordMatchMode: "or",
+  });
+  return { scope: request.scope, matchMode: "or-fallback" as const, hits: hits(loose) };
 }
 
 export async function askDocs(env: DocsRagBindings, request: SearchRequest, clientKey?: string) {
-  // Generation via the legacy binding (aiSearch) is fine for model output,
-  // but scoped retrieval must go through REST for folder filters. Fall back
-  // to unscoped binding generation when the token lacks REST access is NOT
-  // supported: scopes are enforced here, so a REST failure is a hard error.
+  // Scoped retrieval must go through REST for folder filters (the legacy
+  // binding rejects them). Generation also goes through REST now: the
+  // legacy `aiSearch` binding accepts neither `messages` nor query
+  // rewriting, while the chat-completions endpoint supports both.
   const filters = filterForScope(request.scope);
   const retrieval = await aiSearchRest(env, request.query, {
     filters,
     max_num_results: request.limit,
   });
   const context = retrieval.chunks ?? [];
-  // The legacy `aiSearch` binding predates Vectorize-style range filters and
-  // rejects them ("Invalid input"), so generation runs unscoped; scope
-  // enforcement stays on the retrieval side via the REST call above.
-  const answer = await env.AI.autorag(env.AI_SEARCH_INSTANCE).aiSearch({
-    query: request.query,
-    model: env.AI_SEARCH_MODEL,
-    system_prompt: SYSTEM_PROMPT,
-    max_num_results: request.limit,
-    rewrite_query: true,
-    ranking_options: { score_threshold: 0.4 },
+
+  const chatUrl =
+    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}` +
+    `/ai-search/instances/${env.AI_SEARCH_INSTANCE}/chat/completions`;
+  const chatResponse = await fetch(chatUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.AI_SEARCH_API_TOKEN}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: request.query },
+      ],
+      model: env.AI_SEARCH_MODEL,
+      max_num_results: request.limit,
+      ai_search_options: {
+        query_rewrite: { enabled: true },
+        ...(filters ? { retrieval: { filters } } : {}),
+      },
+    }),
   });
-  // Return REST-retrieved (scope-enforced) chunks, not the binding's own
-  // unscoped retrieval, so scope guarantees hold for ask as well.
+  if (!chatResponse.ok) {
+    const detail = await chatResponse.text().catch(() => "");
+    if (chatResponse.status === 429 || detail.includes('"code":2003')) {
+      throw new RateLimitedError();
+    }
+    throw new Error(`AI Search chat ${chatResponse.status}: ${detail.slice(0, 300)}`);
+  }
+  const chat = (await chatResponse.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+    search_query?: string;
+  };
+  const answerText = chat.choices?.[0]?.message?.content ?? "";
+  // Return REST-retrieved (scope-enforced) chunks, not the chat endpoint's
+  // own retrieval, so scope guarantees hold for ask as well.
   return {
     scope: request.scope,
-    searchQuery: answer.search_query ?? request.query,
-    answer: answer.response ?? "",
+    searchQuery: chat.search_query ?? request.query,
+    answer: answerText,
     hits: hits({
-      chunks: context.map((chunk) => chunk),
-    } as DocsRagSearchResult),
+      chunks: context,
+    }),
   };
 }

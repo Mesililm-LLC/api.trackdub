@@ -69,9 +69,6 @@ confirms payment out of band and mints.
 
 ## Runbook: keys, D1, domains
 
-Nothing here can run through this repo's CI or an AI session — a signing
-private key must never pass through either. Run these yourself, in order.
-
 **The private key never lives in any repo.** It exists on your machine only
 long enough to (a) hand its public half to `add-key`, and (b) pipe its
 private half into `wrangler secret put`; delete the local file afterward and

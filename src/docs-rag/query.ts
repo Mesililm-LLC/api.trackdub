@@ -38,12 +38,32 @@ function chunkKey(chunk: DocsRagSearchChunk): string | null {
   return chunk.item?.key ?? null;
 }
 
-function hits(result: DocsRagSearchResult) {
-  return (result.chunks ?? []).map((chunk) => ({
+function hits(chunks: DocsRagSearchChunk[] | undefined) {
+  return (chunks ?? []).map((chunk) => ({
     score: chunk.score ?? null,
     key: chunkKey(chunk),
     text: (chunk.text ?? "").slice(0, 4000),
   }));
+}
+
+/** Rank-interleaves AND and OR per scope: rerank scores are uncorrelated with relevance, so a saturated AND list must not starve OR-only matches. Identical mirrored text is collapsed so duplicates cannot consume the result budget. */
+function mergeByRank(scopeGroups: DocsRagSearchChunk[][][]): DocsRagSearchChunk[] {
+  const seen = new Set<string>();
+  const merged: DocsRagSearchChunk[] = [];
+  for (const groups of scopeGroups) {
+    const longest = groups.reduce((max, group) => Math.max(max, group.length), 0);
+    for (let rank = 0; rank < longest; rank++) {
+      for (const group of groups) {
+        const chunk = group[rank];
+        if (chunk === undefined) continue;
+        const text = (chunk.text ?? "").replace(/\s+/g, " ").trim();
+        if (text !== "" && seen.has(text)) continue;
+        seen.add(text);
+        merged.push(chunk);
+      }
+    }
+  }
+  return merged;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -139,35 +159,30 @@ async function aiSearchRest(
 }
 
 export async function searchDocs(env: DocsRagBindings, request: SearchRequest, clientKey?: string) {
-  const filters = filterForScope(request.scope);
-  const strict = await aiSearchRest(env, request.query, {
-    filters,
-    max_num_results: request.limit,
-    keyword_match_mode: "and",
-  });
-  if ((strict.chunks?.length ?? 0) > 0) {
-    return { scope: request.scope, matchMode: "and" as const, hits: hits(strict) };
-  }
-  const loose = await aiSearchRest(env, request.query, {
-    filters,
-    max_num_results: request.limit,
-    keyword_match_mode: "or",
-  });
+  const scopes: DocScope[] = request.scope === "all" ? ["first-party", "vendor"] : [request.scope];
+  const retrieve = async (keywordMatchMode: "and" | "or", symbolFallback = false) => {
+    const results = await Promise.all(scopes.map(scope => aiSearchRest(env, request.query, {
+      filters: filterForScope(scope),
+      max_num_results: symbolFallback ? 20 : request.limit,
+      keyword_match_mode: keywordMatchMode,
+      ...(symbolFallback ? { retrieval_type: "hybrid" as const } : {}),
+    }, symbolFallback)));
+    return results.map(result => result.chunks ?? []);
+  };
   const isSymbol = /^[A-Za-z_][A-Za-z0-9_.:]{3,127}$/.test(request.query) && /[a-z][A-Z]|[_:.]/.test(request.query);
-  if ((loose.chunks?.length ?? 0) > 0 || !isSymbol) {
-    return { scope: request.scope, matchMode: "or-fallback" as const, hits: hits(loose) };
+  const [strict, loose] = await Promise.all([retrieve("and"), retrieve("or")]);
+  const union = mergeByRank(scopes.map((_, index) => [strict[index] ?? [], loose[index] ?? []]));
+  if (union.length > 0 || !isSymbol) {
+    return { scope: request.scope, matchMode: "union" as const, hits: hits(union).slice(0, request.limit) };
   }
-  const candidates = await aiSearchRest(env, request.query, {
-    filters,
-    max_num_results: 20,
-    keyword_match_mode: "or",
-    retrieval_type: "hybrid",
-  }, true);
+  const candidates = await retrieve("or", true);
   const prefix = new RegExp(`(^|[^A-Za-z0-9_])${request.query.replace(/\./g, "\\.")}`, "i");
   return {
     scope: request.scope,
     matchMode: "symbol-fallback" as const,
-    hits: hits(candidates).filter(hit => hit.key !== null && prefix.test(hit.text)).slice(0, request.limit),
+    hits: hits(mergeByRank(candidates.map(group => [group])))
+      .filter(hit => hit.key !== null && prefix.test(hit.text))
+      .slice(0, request.limit),
   };
 }
 
@@ -204,6 +219,6 @@ export async function askDocs(env: DocsRagBindings, request: SearchRequest, clie
     scope: request.scope,
     searchQuery: chat.search_query ?? null,
     answer: chat.choices[0].message.content,
-    hits: hits(chat),
+    hits: hits(chat.chunks),
   };
 }

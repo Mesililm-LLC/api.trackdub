@@ -39,12 +39,17 @@ export async function provisionUser(auth: Auth, input: ProvisionInput): Promise<
     emailVerified: false,
   });
 
-  await ctx.internalAdapter.linkAccount({
-    userId: createdUser.id,
-    providerId: "credential",
-    accountId: createdUser.id,
-    password: hash,
-  });
+  try {
+    await ctx.internalAdapter.linkAccount({
+      userId: createdUser.id,
+      providerId: "credential",
+      accountId: createdUser.id,
+      password: hash,
+    });
+  } catch (err) {
+    await ctx.internalAdapter.deleteUser(createdUser.id);
+    throw err;
+  }
 
   return { id: createdUser.id, email: createdUser.email };
 }

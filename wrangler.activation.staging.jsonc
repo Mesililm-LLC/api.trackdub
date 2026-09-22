@@ -21,7 +21,7 @@
     // Separate key from production — see wrangler.activation.jsonc. A
     // staging deploy must never be able to mint a token the production
     // trust ring would accept, and vice versa.
-    "SIGNING_KEY_ID": "trackdub-staging-2026-08b",
+    "SIGNING_KEY_ID": "trackdub-staging-2026-09",
     "ALLOW_DEV_LICENSES": "true"
   },
   "d1_databases": [

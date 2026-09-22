@@ -16,6 +16,8 @@ export interface Bindings {
   // --- Secrets (.dev.vars locally, `wrangler secret put` deployed) ---
   BETTER_AUTH_SECRET: string;
   ADMIN_API_TOKEN: string;
+  /** Optional — when absent, password-reset emails are logged but not sent. */
+  RESEND_API_KEY?: string;
 
   // --- Injected at build/deploy time (optional) ---
   CF_VERSION_METADATA?: { id: string; tag?: string };

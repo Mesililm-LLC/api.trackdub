@@ -8,6 +8,7 @@ worker-configuration.d.ts
 
 # Secrets — never commit
 .dev.vars
+.dev.vars.*
 .env
 .env.local
 *.local

@@ -15,8 +15,17 @@ export interface AutoRagSearchOptions {
   filters?: DocsRagFilter;
 }
 
-export interface AutoRagAiSearchOptions extends AutoRagSearchOptions {
+export interface AutoRagMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface AutoRagAiSearchOptions extends Omit<AutoRagSearchOptions, "query"> {
   model: string;
+  /** Messages format; required for query rewriting to apply. */
+  messages?: AutoRagMessage[];
+  /** Legacy single-query format; query rewriting is a no-op with this. */
+  query?: string;
   system_prompt?: string;
 }
 

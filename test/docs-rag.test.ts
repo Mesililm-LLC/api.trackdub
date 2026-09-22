@@ -244,6 +244,68 @@ describe("docs-rag REST search", () => {
     ]);
   });
 
+  it("recovers literal symbol prefixes with one uncached unreranked candidate search", async () => {
+    const fetchStub = stubFetch(searchResponse([]), searchResponse([]), searchResponse([
+      { ...sourceChunk, text: "Register a plugin. No matching identifier here." },
+      { ...sourceChunk, text: "Call OrtEnv.RegisterExecutionProviderLibrary() to load the EP." },
+      { ...sourceChunk, text: "RegisterExecutionProviderLibrary also works here." },
+    ]));
+    expect(await searchDocs(queryEnv, { query: "RegisterExec", scope: "nvidia", limit: 1 })).toEqual({
+      scope: "nvidia", matchMode: "symbol-fallback",
+      hits: [{ ...sourceHit, text: "Call OrtEnv.RegisterExecutionProviderLibrary() to load the EP." }],
+    });
+    expect(fetchStub).toHaveBeenCalledTimes(3);
+    expect(requestBodies(fetchStub)[2]).toEqual({
+      query: "RegisterExec",
+      ai_search_options: {
+        cache: { enabled: false }, reranking: { enabled: false },
+        retrieval: { max_num_results: 20, keyword_match_mode: "or", retrieval_type: "hybrid",
+          filters: { folder: { $gte: "vendor/nvidia/", $lt: "vendor/nvidia0" } } },
+      },
+    });
+  });
+
+  it("does not return semantic-only candidates or substrings inside other identifiers", async () => {
+    const fetchStub = stubFetch(searchResponse([]), searchResponse([]), searchResponse([
+      { ...sourceChunk, text: "Register a library." },
+      { ...sourceChunk, text: "DeregisterExecutionProviderLibrary" },
+      { ...sourceChunk, text: "x".repeat(4001) + " RegisterExecutionProviderLibrary" },
+    ]));
+    expect(await searchDocs(queryEnv, { query: "RegisterExec", scope: "all", limit: 3 })).toEqual({
+      scope: "all", matchMode: "symbol-fallback", hits: [],
+    });
+    expect(fetchStub).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(["ordinary", "why does this fail", "abc", "X".repeat(129), "foo.*"])(
+    "does not use symbol fallback for non-symbol query %s", async (query) => {
+      const fetchStub = stubFetch(searchResponse([]), searchResponse([]));
+      expect((await searchDocs(queryEnv, { ...scopedRequest, query })).hits).toEqual([]);
+      expect(fetchStub).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each([
+    ["OrtEnv.Reg", "Call OrtEnv.RegisterExecutionProviderLibrary()."],
+    ["register_exec", "register_execution_provider"],
+  ])("supports literal dotted and snake-case prefixes: %s", async (query, text) => {
+    const fetchStub = stubFetch(searchResponse([]), searchResponse([]), searchResponse([{ ...sourceChunk, text }]));
+    expect((await searchDocs(queryEnv, { ...scopedRequest, query })).hits).toEqual([{ ...sourceHit, text }]);
+    expect(fetchStub).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not bypass reranking when ordinary OR already returned symbol results", async () => {
+    const fetchStub = stubFetch(searchResponse([]), searchResponse([sourceChunk]));
+    expect((await searchDocs(queryEnv, { ...scopedRequest, query: "RegisterExec" })).matchMode).toBe("or-fallback");
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+  });
+
+  it("propagates symbol fallback errors instead of hiding them as empty success", async () => {
+    const fetchStub = stubFetch(searchResponse([]), searchResponse([]), new Response("unavailable", { status: 503 }));
+    await expect(searchDocs(queryEnv, { ...scopedRequest, query: "RegisterExec" })).rejects.toThrow("503");
+    expect(fetchStub).toHaveBeenCalledTimes(3);
+  });
+
   it.each([
     ["missing chunks", { success: true, result: {} }],
     ["null chunks", { success: true, result: { chunks: null } }],

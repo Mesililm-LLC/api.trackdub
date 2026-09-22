@@ -97,6 +97,7 @@ interface AiSearchRetrievalOptions {
   filters?: ReturnType<typeof filterForScope>;
   max_num_results: number;
   keyword_match_mode: "and" | "or";
+  retrieval_type?: "hybrid";
 }
 
 /**
@@ -109,9 +110,13 @@ async function aiSearchRest(
   env: DocsRagBindings,
   query: string,
   options: AiSearchRetrievalOptions,
+  symbolFallback = false,
 ): Promise<DocsRagSearchResult> {
   const token = env.AI_SEARCH_API_TOKEN;
-  const body = { query, ai_search_options: { retrieval: options } };
+  const body = { query, ai_search_options: {
+    retrieval: options,
+    ...(symbolFallback ? { cache: { enabled: false }, reranking: { enabled: false } } : {}),
+  } };
   const url =
     `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}` +
     `/ai-search/instances/${env.AI_SEARCH_INSTANCE}/search`;
@@ -143,14 +148,27 @@ export async function searchDocs(env: DocsRagBindings, request: SearchRequest, c
   if ((strict.chunks?.length ?? 0) > 0) {
     return { scope: request.scope, matchMode: "and" as const, hits: hits(strict) };
   }
-  // Only a validated empty result permits one looser keyword search.
-  // Errors propagate; scope and limit never broaden on fallback.
   const loose = await aiSearchRest(env, request.query, {
     filters,
     max_num_results: request.limit,
     keyword_match_mode: "or",
   });
-  return { scope: request.scope, matchMode: "or-fallback" as const, hits: hits(loose) };
+  const isSymbol = /^[A-Za-z_][A-Za-z0-9_.:]{3,127}$/.test(request.query) && /[a-z][A-Z]|[_:.]/.test(request.query);
+  if ((loose.chunks?.length ?? 0) > 0 || !isSymbol) {
+    return { scope: request.scope, matchMode: "or-fallback" as const, hits: hits(loose) };
+  }
+  const candidates = await aiSearchRest(env, request.query, {
+    filters,
+    max_num_results: 20,
+    keyword_match_mode: "or",
+    retrieval_type: "hybrid",
+  }, true);
+  const prefix = new RegExp(`(^|[^A-Za-z0-9_])${request.query.replace(/\./g, "\\.")}`, "i");
+  return {
+    scope: request.scope,
+    matchMode: "symbol-fallback" as const,
+    hits: hits(candidates).filter(hit => hit.key !== null && prefix.test(hit.text)).slice(0, request.limit),
+  };
 }
 
 export async function askDocs(env: DocsRagBindings, request: SearchRequest, clientKey?: string) {

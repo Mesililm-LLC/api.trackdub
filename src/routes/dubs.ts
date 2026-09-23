@@ -6,6 +6,7 @@ import { dubJobs } from "@/db/schema";
 import { requireAuth } from "@/middleware/auth";
 import { validate } from "@/middleware/validate";
 import { ApiError } from "@/lib/errors";
+import { isDubProcessorReady } from "@/lib/capabilities";
 import {
   CANCELLABLE_DUB_STATUSES,
   DUB_JOB_STATUSES,
@@ -95,6 +96,12 @@ async function loadOwnedJob(db: ReturnType<typeof createDb>, userId: string, job
  */
 dubs.post("/upload", async (c) => {
   const user = requireUser(c);
+
+  if (!isDubProcessorReady(c.env)) {
+    throw ApiError.serviceUnavailable(
+      "Cloud dubbing processing is not available; media was not uploaded",
+    );
+  }
 
   // Cap at MAX_UPLOAD_BYTES (not + framing slack). Multipart overhead means
   // Content-Length is a slightly stricter early reject than file.size alone.
@@ -199,6 +206,12 @@ dubs.post("/", validate("json", createJobSchema), async (c) => {
   const user = requireUser(c);
   const body = c.get("valid_json");
   const db = createDb(c.env.DB);
+
+  if (!isDubProcessorReady(c.env)) {
+    throw ApiError.serviceUnavailable(
+      "Cloud dubbing processing is not available; no job was created",
+    );
+  }
 
   if (!isOwnedUploadPath(user.id, body.inputMediaPath)) {
     throw ApiError.badRequest("inputMediaPath is not an upload owned by this user");

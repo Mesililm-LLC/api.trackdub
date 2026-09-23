@@ -49,6 +49,7 @@ describe("health endpoints", () => {
     const degraded = (await res.json()) as Record<string, unknown>;
     expect(degraded.status).toBe("degraded");
     expect(degraded.availablePipelines).toEqual([]);
+    expect(degraded.capabilities).toEqual({ jobIntake: false, upload: false, jobProcessing: false, outputDownload: false });
   });
 
   it("GET /api/health returns detailed status shaped to the portal contract", async () => {
@@ -59,7 +60,14 @@ describe("health endpoints", () => {
     expect(body.environment).toBe("development");
     expect(body).toHaveProperty("timestamp");
     expect(body.availablePipelines).toContain("auth");
-    expect(body.availablePipelines).toContain("dubs");
+    expect(body.availablePipelines).toContain("dub-management");
+    expect(body.availablePipelines).not.toContain("dub-processing");
+    expect(body.capabilities).toEqual({
+      jobIntake: false,
+      upload: false,
+      jobProcessing: false,
+      outputDownload: true,
+    });
   });
 
   it("GET /api/health omits dubs when dub_jobs table is missing", async () => {
@@ -83,8 +91,32 @@ describe("health endpoints", () => {
     };
     const res = await app.request("/api/health", {}, broken);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { availablePipelines: string[] };
+    const body = (await res.json()) as { availablePipelines: string[]; capabilities: Record<string, boolean> };
     expect(body.availablePipelines).toEqual(["auth"]);
+    expect(body.capabilities).toEqual({ jobIntake: false, upload: false, jobProcessing: false, outputDownload: false });
+  });
+
+  it("does not advertise processing when dub_jobs is missing, even with processor enabled", async () => {
+    const processorBindings = {
+      ...bindings,
+      DUB_PROCESSOR_ENABLED: "true",
+      DB: {
+        prepare: (sql: string) => {
+          if (sql.includes("sqlite_master") && sql.includes("dub_jobs")) {
+            return { first: async () => null };
+          }
+          if (sql.trim() === "SELECT 1") {
+            return { first: async () => ({ "1": 1 }) };
+          }
+          throw new Error(`unexpected sql: ${sql}`);
+        },
+      } as unknown as Bindings["DB"],
+    };
+    const res = await app.request("/api/health", {}, processorBindings);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { availablePipelines: string[]; capabilities: Record<string, boolean> };
+    expect(body.availablePipelines).toEqual(["auth"]);
+    expect(body.capabilities).toEqual({ jobIntake: false, upload: false, jobProcessing: false, outputDownload: false });
   });
 
   it("attaches an x-request-id header", async () => {

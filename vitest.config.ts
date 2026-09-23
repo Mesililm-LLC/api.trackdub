@@ -5,7 +5,7 @@ import path from "node:path";
 /**
  * Runs tests inside the real workerd runtime via the vitest-pool-workers Vite
  * plugin, with bindings from wrangler.jsonc. Migrations are read from
- * ./drizzle at config time (Node context) and injected as `TEST_MIGRATIONS`;
+ * ./drizzle at config time (Node context) and compiled into the test worker;
  * a setup hook (test/apply-migrations.ts) applies them to the isolated
  * per-run D1 so auth flows hit a real SQLite schema.
  */
@@ -18,6 +18,7 @@ export default defineConfig(async () => {
         "@": path.resolve(__dirname, "src"),
       },
     },
+    define: { __TEST_MIGRATIONS__: JSON.stringify(migrations) },
     plugins: [
       cloudflareTest({
         wrangler: { configPath: "./wrangler.jsonc" },
@@ -27,7 +28,6 @@ export default defineConfig(async () => {
             PORTAL_ORIGIN: "https://portal.trackdub.com",
             BETTER_AUTH_SECRET: "test-secret-value-at-least-16-chars-long",
             ADMIN_API_TOKEN: "test-admin-token-at-least-16-chars-long",
-            TEST_MIGRATIONS: migrations,
           },
         },
       }),

@@ -8,7 +8,10 @@ import { dubJobs } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import type { Bindings } from "@/types/env";
 
-const bindings = env as unknown as Bindings;
+const bindings = {
+  ...(env as unknown as Bindings),
+  DUB_PROCESSOR_ENABLED: "true",
+};
 
 const USER = {
   email: "dubs-user@example.com",
@@ -133,9 +136,55 @@ describe("/api/dubs auth gate", () => {
 });
 
 describe("/api/dubs upload + create + list + cancel", () => {
+  it("rejects job intake when no processor is available", async () => {
+    const cookie = await signIn(USER.email, USER.password);
+    const unavailable = { ...bindings, DUB_PROCESSOR_ENABLED: "false" };
+    const create = await app.request(
+      "/api/dubs/",
+      {
+        method: "POST",
+        headers: { ...jsonHeaders, Cookie: cookie },
+        body: JSON.stringify({
+          projectName: "Never Queued",
+          sourceLanguage: "en",
+          targetLanguage: "es",
+          inputMediaPath: "uploads/unused/path.wav",
+        }),
+      },
+      unavailable,
+    );
+    expect(create.status).toBe(503);
+    expect(await create.json()).toMatchObject({
+      error: {
+        code: "SERVICE_UNAVAILABLE",
+        message: expect.stringMatching(/processing is not available/i),
+      },
+    });
+  });
+
+  it("rejects uploads when no processor is available", async () => {
+    const cookie = await signIn(USER.email, USER.password);
+    const unavailable = { ...bindings, DUB_PROCESSOR_ENABLED: "false" };
+    const form = new FormData();
+    form.append("file", tinyWavFile());
+    const upload = await app.request(
+      "/api/dubs/upload",
+      { method: "POST", headers: { Cookie: cookie, Origin: PORTAL }, body: form },
+      unavailable,
+    );
+    expect(upload.status).toBe(503);
+    expect(await upload.json()).toMatchObject({
+      error: {
+        code: "SERVICE_UNAVAILABLE",
+        message: expect.stringMatching(/media was not uploaded/i),
+      },
+    });
+  });
+
   it("uploads media, creates a Queued job (trailing slash), lists, and cancels", async () => {
     const cookie = await signIn(USER.email, USER.password);
     const filePath = await uploadMedia(cookie);
+    const processorBindings = { ...bindings, DUB_PROCESSOR_ENABLED: "true" };
 
     // Portal CreateJobPage posts to `/api/dubs/` with a trailing slash.
     const create = await app.request(
@@ -150,7 +199,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     expect(create.status).toBe(201);
     const created = (await create.json()) as {
@@ -173,7 +222,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const list = await app.request(
       "/api/dubs?status=Queued",
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     expect(list.status).toBe(200);
     const listed = (await list.json()) as { items: { id: string }[]; totalCount: number };
@@ -183,7 +232,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const detail = await app.request(
       `/api/dubs/${created.id}`,
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     expect(detail.status).toBe(200);
     const detailBody = (await detail.json()) as { id: string; status: string };
@@ -194,18 +243,104 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const download = await app.request(
       `/api/dubs/${created.id}/download`,
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     expect(download.status).toBe(409);
 
     const cancel = await app.request(
       `/api/dubs/${created.id}`,
       { method: "DELETE", headers: { Cookie: cookie, Origin: PORTAL } },
-      bindings,
+      processorBindings,
     );
     expect(cancel.status).toBe(200);
     const cancelled = (await cancel.json()) as { status: string };
     expect(cancelled.status).toBe("Cancelled");
+  });
+
+  it("keeps management and completed downloads available when processing is disabled", async () => {
+    const cookie = await signIn(USER.email, USER.password);
+    const processorBindings = { ...bindings, DUB_PROCESSOR_ENABLED: "true" };
+    const filePath = await uploadMedia(cookie);
+    const create = await app.request(
+      "/api/dubs",
+      {
+        method: "POST",
+        headers: { ...jsonHeaders, Cookie: cookie },
+        body: JSON.stringify({
+          projectName: "Managed Without Processor",
+          sourceLanguage: "en",
+          targetLanguage: "es",
+          inputMediaPath: filePath,
+        }),
+      },
+      processorBindings,
+    );
+    expect(create.status).toBe(201);
+    const created = (await create.json()) as { id: string };
+    const outputKey = `outputs/${created.id}/dubbed.mp4`;
+    await bindings.MEDIA.put(outputKey, new Uint8Array([0, 0, 0, 1, 0x67]), {
+      httpMetadata: { contentType: "video/mp4" },
+    });
+    const db = createDb(bindings.DB);
+    const now = new Date();
+    await db
+      .update(dubJobs)
+      .set({
+        status: "Completed",
+        outputMediaPath: outputKey,
+        progressPercent: 100,
+        currentStage: "export",
+        completedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(dubJobs.id, created.id));
+
+    const unavailable = { ...bindings, DUB_PROCESSOR_ENABLED: "false" };
+    const list = await app.request("/api/dubs", { headers: { Cookie: cookie } }, unavailable);
+    expect(list.status).toBe(200);
+    expect(((await list.json()) as { items: { id: string }[] }).items.some((job) => job.id === created.id)).toBe(true);
+
+    const detail = await app.request(`/api/dubs/${created.id}`, { headers: { Cookie: cookie } }, unavailable);
+    expect(detail.status).toBe(200);
+    expect(await detail.json()).toMatchObject({ id: created.id, status: "Completed" });
+
+    const queuedCreate = await app.request(
+      "/api/dubs",
+      {
+        method: "POST",
+        headers: { ...jsonHeaders, Cookie: cookie },
+        body: JSON.stringify({
+          projectName: "Cancel Without Processor",
+          sourceLanguage: "en",
+          targetLanguage: "fr",
+          inputMediaPath: filePath,
+        }),
+      },
+      processorBindings,
+    );
+    expect(queuedCreate.status).toBe(201);
+    const queuedJob = (await queuedCreate.json()) as { id: string };
+
+    const cancel = await app.request(
+      `/api/dubs/${queuedJob.id}`,
+      { method: "DELETE", headers: { Cookie: cookie, Origin: PORTAL } },
+      unavailable,
+    );
+    expect(cancel.status).toBe(200);
+    expect(await cancel.json()).toMatchObject({ id: queuedJob.id, status: "Cancelled" });
+
+    const download = await app.request(
+      `/api/dubs/${created.id}/download`,
+      { headers: { Cookie: cookie } },
+      unavailable,
+    );
+    expect(download.status).toBe(200);
+
+    const healthRes = await app.request("/api/health", {}, unavailable);
+    expect(healthRes.status).toBe(200);
+    const healthBody = (await healthRes.json()) as { availablePipelines: string[] };
+    expect(healthBody.availablePipelines).toContain("dub-management");
+    expect(healthBody.availablePipelines).not.toContain("dub-processing");
   });
 
   it("rejects create when inputMediaPath is missing from R2 or owned by another user", async () => {
@@ -227,7 +362,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: `uploads/${userId}/${crypto.randomUUID()}/nope.wav`,
         }),
       },
-      bindings,
+      processorBindings,
     );
     expect(missing.status).toBe(400);
     const missingBody = (await missing.json()) as { error: { message: string } };
@@ -245,7 +380,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: otherPath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     expect(stolen.status).toBe(400);
     const stolenBody = (await stolen.json()) as { error: { message: string } };
@@ -266,7 +401,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
         // Truncated multipart: boundary declared but body is garbage.
         body: "this-is-not-valid-multipart",
       },
-      bindings,
+      processorBindings,
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string; message: string } };
@@ -285,7 +420,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
         headers: { Cookie: cookie, Origin: PORTAL },
         body: form,
       },
-      bindings,
+      processorBindings,
     );
     expect(res.status).toBe(415);
   });
@@ -307,14 +442,14 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     const created = (await create.json()) as { id: string };
 
     const peek = await app.request(
       `/api/dubs/${created.id}`,
       { headers: { Cookie: otherCookie } },
-      bindings,
+      processorBindings,
     );
     expect(peek.status).toBe(404);
   });
@@ -335,7 +470,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     const created = (await create.json()) as { id: string };
 
@@ -362,7 +497,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const download = await app.request(
       `/api/dubs/${created.id}/download`,
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     expect(download.status).toBe(200);
     expect(download.headers.get("content-disposition")).toMatch(/Ready\.mp4/);
@@ -388,7 +523,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     const created = (await create.json()) as { id: string };
     const outputKey = `outputs/${created.id}/dubbed.webm`;
@@ -410,7 +545,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const download = await app.request(
       `/api/dubs/${created.id}/download`,
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     expect(download.status).toBe(200);
     expect(download.headers.get("content-type")).toBe("video/webm");
@@ -433,7 +568,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     const created = (await create.json()) as { id: string };
 
@@ -453,7 +588,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const cancel = await app.request(
       `/api/dubs/${created.id}`,
       { method: "DELETE", headers: { Cookie: cookie, Origin: PORTAL } },
-      bindings,
+      processorBindings,
     );
     expect(cancel.status).toBe(400);
     const body = (await cancel.json()) as { error: { message: string } };
@@ -462,7 +597,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const detail = await app.request(
       `/api/dubs/${created.id}`,
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     const detailBody = (await detail.json()) as { status: string };
     expect(detailBody.status).toBe("Completed");
@@ -484,7 +619,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     const created = (await create.json()) as { id: string };
 
@@ -507,7 +642,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const download = await app.request(
       `/api/dubs/${created.id}/download`,
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     expect(download.status).toBe(415);
   });
@@ -526,19 +661,30 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: `uploads/%2e%2e/etc/passwd`,
         }),
       },
-      bindings,
+      processorBindings,
     );
     expect(res.status).toBe(400);
   });
 });
 
 describe("health advertises dubs scaffold", () => {
-  it("lists dubs in availablePipelines", async () => {
-    const res = await app.request("/api/health", {}, bindings);
+  it("reports management and processing capabilities separately", async () => {
+    const processorBindings = { ...bindings, DUB_PROCESSOR_ENABLED: "true" };
+    const res = await app.request("/api/health", {}, processorBindings);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { availablePipelines: string[] };
+    const body = (await res.json()) as {
+      availablePipelines: string[];
+      capabilities: Record<string, boolean>;
+    };
     expect(body.availablePipelines).toContain("auth");
-    expect(body.availablePipelines).toContain("dubs");
+    expect(body.availablePipelines).toContain("dub-management");
+    expect(body.availablePipelines).toContain("dub-processing");
+    expect(body.capabilities).toEqual({
+      jobIntake: true,
+      upload: true,
+      jobProcessing: true,
+      outputDownload: true,
+    });
   });
 
   it("does not accept a trailing slash on health (root stays strict)", async () => {

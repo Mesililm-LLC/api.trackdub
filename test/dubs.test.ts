@@ -8,7 +8,10 @@ import { dubJobs } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import type { Bindings } from "@/types/env";
 
-const bindings = env as unknown as Bindings;
+const bindings = {
+  ...(env as unknown as Bindings),
+  DUB_PROCESSOR_ENABLED: "true",
+};
 
 const USER = {
   email: "dubs-user@example.com",
@@ -133,9 +136,55 @@ describe("/api/dubs auth gate", () => {
 });
 
 describe("/api/dubs upload + create + list + cancel", () => {
+  it("rejects job intake when no processor is available", async () => {
+    const cookie = await signIn(USER.email, USER.password);
+    const unavailable = { ...bindings, DUB_PROCESSOR_ENABLED: "false" };
+    const create = await app.request(
+      "/api/dubs/",
+      {
+        method: "POST",
+        headers: { ...jsonHeaders, Cookie: cookie },
+        body: JSON.stringify({
+          projectName: "Never Queued",
+          sourceLanguage: "en",
+          targetLanguage: "es",
+          inputMediaPath: "uploads/unused/path.wav",
+        }),
+      },
+      unavailable,
+    );
+    expect(create.status).toBe(503);
+    expect(await create.json()).toMatchObject({
+      error: {
+        code: "SERVICE_UNAVAILABLE",
+        message: expect.stringMatching(/processing is not available/i),
+      },
+    });
+  });
+
+  it("rejects uploads when no processor is available", async () => {
+    const cookie = await signIn(USER.email, USER.password);
+    const unavailable = { ...bindings, DUB_PROCESSOR_ENABLED: "false" };
+    const form = new FormData();
+    form.append("file", tinyWavFile());
+    const upload = await app.request(
+      "/api/dubs/upload",
+      { method: "POST", headers: { Cookie: cookie, Origin: PORTAL }, body: form },
+      unavailable,
+    );
+    expect(upload.status).toBe(503);
+    expect(await upload.json()).toMatchObject({
+      error: {
+        code: "SERVICE_UNAVAILABLE",
+        message: expect.stringMatching(/media was not uploaded/i),
+      },
+    });
+  });
+
   it("uploads media, creates a Queued job (trailing slash), lists, and cancels", async () => {
     const cookie = await signIn(USER.email, USER.password);
     const filePath = await uploadMedia(cookie);
+    const processorBindings = { ...bindings, DUB_PROCESSOR_ENABLED: "true" };
 
     // Portal CreateJobPage posts to `/api/dubs/` with a trailing slash.
     const create = await app.request(
@@ -150,7 +199,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     expect(create.status).toBe(201);
     const created = (await create.json()) as {
@@ -173,7 +222,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const list = await app.request(
       "/api/dubs?status=Queued",
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     expect(list.status).toBe(200);
     const listed = (await list.json()) as { items: { id: string }[]; totalCount: number };
@@ -183,7 +232,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const detail = await app.request(
       `/api/dubs/${created.id}`,
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     expect(detail.status).toBe(200);
     const detailBody = (await detail.json()) as { id: string; status: string };
@@ -194,7 +243,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const download = await app.request(
       `/api/dubs/${created.id}/download`,
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     expect(download.status).toBe(409);
 
@@ -533,12 +582,23 @@ describe("/api/dubs upload + create + list + cancel", () => {
 });
 
 describe("health advertises dubs scaffold", () => {
-  it("lists dubs in availablePipelines", async () => {
-    const res = await app.request("/api/health", {}, bindings);
+  it("reports management and processing capabilities separately", async () => {
+    const processorBindings = { ...bindings, DUB_PROCESSOR_ENABLED: "true" };
+    const res = await app.request("/api/health", {}, processorBindings);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { availablePipelines: string[] };
+    const body = (await res.json()) as {
+      availablePipelines: string[];
+      capabilities: Record<string, boolean>;
+    };
     expect(body.availablePipelines).toContain("auth");
-    expect(body.availablePipelines).toContain("dubs");
+    expect(body.availablePipelines).toContain("dub-management");
+    expect(body.availablePipelines).toContain("dub-processing");
+    expect(body.capabilities).toEqual({
+      jobIntake: true,
+      upload: true,
+      jobProcessing: true,
+      outputDownload: true,
+    });
   });
 
   it("does not accept a trailing slash on health (root stays strict)", async () => {

@@ -41,6 +41,13 @@ smallest compatible fix (no frontend change) or flagged for a decision.
   `runtimeStatus`, and `availablePipelines` are populated. If the portal needs
   real numbers here, the field set should be revised.
 
+The response also exposes `capabilities.jobIntake`, `capabilities.upload`,
+`capabilities.jobProcessing`, and `capabilities.outputDownload`. Management
+readiness only means D1 contains the job schema. Upload and job creation are
+accepted only when `DUB_PROCESSOR_ENABLED=true`; this flag must remain unset
+until a real worker consumes queued jobs. `availablePipelines` separates
+`dub-management` from `dub-processing` for the same reason.
+
 ## 5. `/api/languages` shape + coverage
 
 - The endpoint is **not** in the portal's OpenAPI schema; it's a bespoke hook

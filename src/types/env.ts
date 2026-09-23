@@ -12,6 +12,8 @@ export interface Bindings {
   // --- Public configuration (wrangler.jsonc `vars`) ---
   APP_ENV: string;
   PORTAL_ORIGIN: string;
+  /** Set to "true" only while a real dub queue consumer is deployed. */
+  DUB_PROCESSOR_ENABLED?: string;
 
   // --- Secrets (.dev.vars locally, `wrangler secret put` deployed) ---
   BETTER_AUTH_SECRET: string;

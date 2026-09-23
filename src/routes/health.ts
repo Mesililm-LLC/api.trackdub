@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { loadConfig } from "@/config/env";
 import { logger } from "@/lib/logger";
+import { dubCapabilities } from "@/lib/capabilities";
 import type { AppEnv } from "@/types/env";
 
 /**
@@ -56,10 +57,11 @@ health.get("/", async (c) => {
   const config = loadConfig(c.env);
   const dbOk = await pingDb(c.env.DB);
   const dubsOk = dbOk ? await dubsSchemaReady(c.env.DB) : false;
+  const capabilities = dubCapabilities(c.env, dubsOk);
   const availablePipelines: string[] = [];
   if (dbOk) availablePipelines.push("auth");
-  // "dubs" = job CRUD + R2 upload scaffold once dub_jobs exists. Not inference.
-  if (dubsOk) availablePipelines.push("dubs");
+  if (dubsOk) availablePipelines.push("dub-management");
+  if (capabilities.jobProcessing) availablePipelines.push("dub-processing");
   return c.json(
     {
       status: dbOk ? "healthy" : "degraded",
@@ -72,6 +74,7 @@ health.get("/", async (c) => {
       uptime: null,
       memoryMb: null,
       availablePipelines,
+      capabilities,
     },
     dbOk ? 200 : 503,
   );

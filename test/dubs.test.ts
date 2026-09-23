@@ -250,7 +250,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const cancel = await app.request(
       `/api/dubs/${created.id}`,
       { method: "DELETE", headers: { Cookie: cookie, Origin: PORTAL } },
-      bindings,
+      processorBindings,
     );
     expect(cancel.status).toBe(200);
     const cancelled = (await cancel.json()) as { status: string };
@@ -362,7 +362,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: `uploads/${userId}/${crypto.randomUUID()}/nope.wav`,
         }),
       },
-      bindings,
+      processorBindings,
     );
     expect(missing.status).toBe(400);
     const missingBody = (await missing.json()) as { error: { message: string } };
@@ -380,7 +380,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: otherPath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     expect(stolen.status).toBe(400);
     const stolenBody = (await stolen.json()) as { error: { message: string } };
@@ -401,7 +401,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
         // Truncated multipart: boundary declared but body is garbage.
         body: "this-is-not-valid-multipart",
       },
-      bindings,
+      processorBindings,
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string; message: string } };
@@ -420,7 +420,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
         headers: { Cookie: cookie, Origin: PORTAL },
         body: form,
       },
-      bindings,
+      processorBindings,
     );
     expect(res.status).toBe(415);
   });
@@ -442,14 +442,14 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     const created = (await create.json()) as { id: string };
 
     const peek = await app.request(
       `/api/dubs/${created.id}`,
       { headers: { Cookie: otherCookie } },
-      bindings,
+      processorBindings,
     );
     expect(peek.status).toBe(404);
   });
@@ -470,7 +470,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     const created = (await create.json()) as { id: string };
 
@@ -497,7 +497,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const download = await app.request(
       `/api/dubs/${created.id}/download`,
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     expect(download.status).toBe(200);
     expect(download.headers.get("content-disposition")).toMatch(/Ready\.mp4/);
@@ -523,7 +523,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     const created = (await create.json()) as { id: string };
     const outputKey = `outputs/${created.id}/dubbed.webm`;
@@ -545,7 +545,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const download = await app.request(
       `/api/dubs/${created.id}/download`,
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     expect(download.status).toBe(200);
     expect(download.headers.get("content-type")).toBe("video/webm");
@@ -568,7 +568,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     const created = (await create.json()) as { id: string };
 
@@ -588,7 +588,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const cancel = await app.request(
       `/api/dubs/${created.id}`,
       { method: "DELETE", headers: { Cookie: cookie, Origin: PORTAL } },
-      bindings,
+      processorBindings,
     );
     expect(cancel.status).toBe(400);
     const body = (await cancel.json()) as { error: { message: string } };
@@ -597,7 +597,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const detail = await app.request(
       `/api/dubs/${created.id}`,
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     const detailBody = (await detail.json()) as { status: string };
     expect(detailBody.status).toBe("Completed");
@@ -619,7 +619,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      bindings,
+      processorBindings,
     );
     const created = (await create.json()) as { id: string };
 
@@ -642,7 +642,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const download = await app.request(
       `/api/dubs/${created.id}/download`,
       { headers: { Cookie: cookie } },
-      bindings,
+      processorBindings,
     );
     expect(download.status).toBe(415);
   });
@@ -661,7 +661,7 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: `uploads/%2e%2e/etc/passwd`,
         }),
       },
-      bindings,
+      processorBindings,
     );
     expect(res.status).toBe(400);
   });

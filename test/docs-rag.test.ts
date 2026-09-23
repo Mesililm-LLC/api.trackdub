@@ -360,6 +360,36 @@ describe("docs-rag REST search", () => {
     expect(fetchStub).toHaveBeenCalledTimes(3);
   });
 
+  it("recovers queries made of several identifiers and ranks chunks matching more of them first", async () => {
+    const fetchStub = stubFetch(searchResponse([]), searchResponse([]), searchResponse([
+      { ...sourceChunk, text: "Semantic neighbour with no identifiers." },
+      { ...sourceChunk, text: "nv_profile_min_shapes only." },
+      { ...sourceChunk, text: "Options: nv_profile_min_shapes, nv_profile_max_shapes, nv_profile_opt_shapes." },
+    ]));
+    const result = await searchDocs(queryEnv, {
+      query: "nv_profile_min_shapes nv_profile_max_shapes nv_profile_opt_shapes provider options",
+      scope: "onnxruntime",
+      limit: 5,
+    });
+    expect(result.matchMode).toBe("symbol-fallback");
+    expect(result.hits.map(hit => hit.text)).toEqual([
+      "Options: nv_profile_min_shapes, nv_profile_max_shapes, nv_profile_opt_shapes.",
+      "nv_profile_min_shapes only.",
+    ]);
+    expect(requestBodies(fetchStub)[2].query).toBe(
+      "nv_profile_min_shapes nv_profile_max_shapes nv_profile_opt_shapes provider options");
+  });
+
+  it("strips surrounding punctuation from identifier tokens", async () => {
+    const fetchStub = stubFetch(searchResponse([]), searchResponse([]), searchResponse([
+      { ...sourceChunk, text: "Call OrtEnv.RegisterExecutionProviderLibrary() first." },
+    ]));
+    const result = await searchDocs(queryEnv, { ...scopedRequest, query: "why does (OrtEnv.RegisterExec), fail?" });
+    expect(result.matchMode).toBe("symbol-fallback");
+    expect(result.hits).toHaveLength(1);
+    expect(fetchStub).toHaveBeenCalledTimes(3);
+  });
+
   it("does not bypass reranking when the AND/OR union already returned symbol results", async () => {
     const fetchStub = stubFetch(searchResponse([]), searchResponse([sourceChunk]));
     expect((await searchDocs(queryEnv, { ...scopedRequest, query: "RegisterExec" })).matchMode).toBe("union");

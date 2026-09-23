@@ -158,6 +158,11 @@ async function aiSearchRest(
   return payload.result;
 }
 
+/** Camel-case, dotted, colon-qualified or snake-case token of 4-128 ASCII characters. */
+function isCodeIdentifier(token: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_.:]{3,127}$/.test(token) && /[a-z][A-Z]|[_:.]/.test(token);
+}
+
 export async function searchDocs(env: DocsRagBindings, request: SearchRequest, clientKey?: string) {
   const scopes: DocScope[] = request.scope === "all" ? ["first-party", "vendor"] : [request.scope];
   const retrieve = async (keywordMatchMode: "and" | "or", symbolFallback = false) => {
@@ -169,20 +174,29 @@ export async function searchDocs(env: DocsRagBindings, request: SearchRequest, c
     }, symbolFallback)));
     return results.map(result => result.chunks ?? []);
   };
-  const isSymbol = /^[A-Za-z_][A-Za-z0-9_.:]{3,127}$/.test(request.query) && /[a-z][A-Z]|[_:.]/.test(request.query);
+  // Reranking scores identifier-only queries (e.g. "nv_profile_min_shapes nv_profile_max_shapes")
+  // below its cutoff even when a chunk contains them verbatim, so any code-like token in an
+  // otherwise empty search earns the unreranked literal fallback, not only a lone identifier.
+  const identifiers = [...new Set(request.query.split(/\s+/)
+    .map(token => token.replace(/^[^A-Za-z0-9_]+|[^A-Za-z0-9_]+$/g, ""))
+    .filter(isCodeIdentifier))];
   const [strict, loose] = await Promise.all([retrieve("and"), retrieve("or")]);
   const union = mergeByRank(scopes.map((_, index) => [strict[index] ?? [], loose[index] ?? []]));
-  if (union.length > 0 || !isSymbol) {
+  if (union.length > 0 || identifiers.length === 0) {
     return { scope: request.scope, matchMode: "union" as const, hits: hits(union).slice(0, request.limit) };
   }
   const candidates = await retrieve("or", true);
-  const prefix = new RegExp(`(^|[^A-Za-z0-9_])${request.query.replace(/\./g, "\\.")}`, "i");
+  const prefixes = identifiers.map(identifier =>
+    new RegExp(`(^|[^A-Za-z0-9_])${identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i"));
+  const scored = hits(mergeByRank(candidates.map(group => [group])))
+    .map((hit, rank) => ({ hit, rank, matched: prefixes.filter(prefix => prefix.test(hit.text)).length }))
+    .filter(entry => entry.hit.key !== null && entry.matched > 0)
+    // More of the requested identifiers first; ties keep retrieval order.
+    .sort((a, b) => b.matched - a.matched || a.rank - b.rank);
   return {
     scope: request.scope,
     matchMode: "symbol-fallback" as const,
-    hits: hits(mergeByRank(candidates.map(group => [group])))
-      .filter(hit => hit.key !== null && prefix.test(hit.text))
-      .slice(0, request.limit),
+    hits: scored.map(entry => entry.hit).slice(0, request.limit),
   };
 }
 

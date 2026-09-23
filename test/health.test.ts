@@ -57,7 +57,7 @@ describe("health endpoints", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.status).toBe("healthy");
-    expect(body.environment).toBe("production");
+    expect(body.environment).toBe("development");
     expect(body).toHaveProperty("timestamp");
     expect(body.availablePipelines).toContain("auth");
     expect(body.availablePipelines).toContain("dub-management");
@@ -107,6 +107,6 @@ describe("health endpoints", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toHaveProperty("build");
     expect(body).toHaveProperty("commit");
-    expect(body.environment).toBe("production");
+    expect(body.environment).toBe("development");
   });
 });

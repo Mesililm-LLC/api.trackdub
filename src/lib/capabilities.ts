@@ -20,7 +20,7 @@ export function dubCapabilities(env: Bindings, schemaReady: boolean): DubCapabil
   return {
     jobIntake: schemaReady && jobProcessing,
     upload: schemaReady && jobProcessing,
-    jobProcessing,
+    jobProcessing: schemaReady && jobProcessing,
     outputDownload: schemaReady,
   };
 }

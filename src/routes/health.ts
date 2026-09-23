@@ -61,7 +61,7 @@ health.get("/", async (c) => {
   const availablePipelines: string[] = [];
   if (dbOk) availablePipelines.push("auth");
   if (dubsOk) availablePipelines.push("dub-management");
-  if (capabilities.jobProcessing) availablePipelines.push("dub-processing");
+  if (dubsOk && capabilities.jobProcessing) availablePipelines.push("dub-processing");
   return c.json(
     {
       status: dbOk ? "healthy" : "degraded",

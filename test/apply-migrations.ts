@@ -19,7 +19,7 @@ if (proc?.on) {
 
 /**
  * Global setup: apply Drizzle SQL migrations to the isolated test D1 once,
- * using the migrations read at config time and injected as `TEST_MIGRATIONS`.
+ * using the migrations read at config time and injected as `__TEST_MIGRATIONS__`.
  */
 beforeAll(async () => {
   await applyD1Migrations(env.DB, __TEST_MIGRATIONS__);

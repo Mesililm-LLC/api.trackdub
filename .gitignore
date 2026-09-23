@@ -38,3 +38,4 @@ coverage
 !/.qoder/repowiki/en/content
 /.qoder/repowiki/knowledge/*
 !/.qoder/repowiki/knowledge/en
+/.tmp

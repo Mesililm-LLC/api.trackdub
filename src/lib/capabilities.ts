@@ -16,7 +16,7 @@ export function isDubProcessorReady(env: Bindings): boolean {
 }
 
 export function dubCapabilities(env: Bindings, schemaReady: boolean): DubCapabilities {
-  const jobProcessing = isDubProcessorReady(env);
+  const jobProcessing = schemaReady && isDubProcessorReady(env);
   return {
     jobIntake: schemaReady && jobProcessing,
     upload: schemaReady && jobProcessing,

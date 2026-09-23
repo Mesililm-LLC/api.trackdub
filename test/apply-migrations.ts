@@ -19,7 +19,8 @@ if (proc?.on) {
 
 /**
  * Global setup: apply Drizzle SQL migrations to the isolated test D1 once,
- * using the migrations read at config time and injected as `TEST_MIGRATIONS`.
+ * using migrations read at config time and compiled into the worker as
+ * `__TEST_MIGRATIONS__` by vitest.config.ts.
  */
 beforeAll(async () => {
   await applyD1Migrations(env.DB, __TEST_MIGRATIONS__);

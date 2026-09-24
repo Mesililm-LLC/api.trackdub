@@ -21,7 +21,8 @@ jobs:
     if: >-
       !endsWith(github.actor, '[bot]')
       && (github.event_name == 'workflow_dispatch'
-          || contains('OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR', github.event.comment.author_association))
+          || (github.event.issue.pull_request
+              && contains('OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR', github.event.comment.author_association)))
     permissions:
       contents: read
       issues: write
@@ -30,7 +31,7 @@ jobs:
       actions: read
     uses: tonythethompson/opencode-review-threads/.github/workflows/opencode-bot.yml@c1c9bc9bdae03bc36259caf78a1eb8a4209706cc  # v1.4.1
     with:
-      prompt: ${{ inputs.prompt }}
+      prompt: ${{ inputs.prompt || github.event.comment.body }}
       models-review: cf:@cf/zai-org/glm-5.2,zen:big-pickle,zen:glm-5-free
       models-fix: cf:@cf/deepseek-ai/deepseek-v4-flash-0731,zen:nemotron-3.5-lightning-free,zen:big-pickle
     secrets:

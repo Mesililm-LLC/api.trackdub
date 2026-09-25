@@ -37,7 +37,7 @@ export function createDocsRagServer(env: DocsRagBindings, clientKey: string): Mc
         "Curated Trackdub + vendor documentation search (R2 corpus indexed by Cloudflare AI Search). " +
         "Covers Trackdub, Trackdub-gated, api.trackdub first-party docs and pinned vendor docs " +
         "(NVIDIA TRT-RTX/EP ABI, Windows ML, ONNX Runtime EPs, AMD, Intel, Qualcomm, Qwen, Whisper, speech models). " +
-        "First-party text outranks vendor /latest/ pages on disagreement. Trackdub pins TensorRT-RTX EP ABI 0.3.0 cu12. " +
+        "First-party text outranks vendor /latest/ pages on disagreement. Trackdub pins TensorRT-RTX EP ABI 0.4.2 (Windows) / 0.4.0 (Linux), CUDA cu13, TensorRT-RTX 1.6.1. " +
         "Each tool call is stateless: compose every query as self-contained (include symbols, product names, and concrete context — " +
         "never bare follow-ups like 'what about its limitations?'; restate the full question instead).",
     },

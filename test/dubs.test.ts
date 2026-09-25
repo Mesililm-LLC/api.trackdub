@@ -13,6 +13,8 @@ const bindings = {
   DUB_PROCESSOR_ENABLED: "true",
 };
 
+const processorBindings = { ...bindings, DUB_PROCESSOR_ENABLED: "true" };
+
 const USER = {
   email: "dubs-user@example.com",
   name: "Dubs User",
@@ -184,7 +186,6 @@ describe("/api/dubs upload + create + list + cancel", () => {
   it("uploads media, creates a Queued job (trailing slash), lists, and cancels", async () => {
     const cookie = await signIn(USER.email, USER.password);
     const filePath = await uploadMedia(cookie);
-    const processorBindings = { ...bindings, DUB_PROCESSOR_ENABLED: "true" };
 
     // Portal CreateJobPage posts to `/api/dubs/` with a trailing slash.
     const create = await app.request(
@@ -259,7 +260,6 @@ describe("/api/dubs upload + create + list + cancel", () => {
 
   it("keeps management and completed downloads available when processing is disabled", async () => {
     const cookie = await signIn(USER.email, USER.password);
-    const processorBindings = { ...bindings, DUB_PROCESSOR_ENABLED: "true" };
     const filePath = await uploadMedia(cookie);
     const create = await app.request(
       "/api/dubs",
@@ -669,7 +669,6 @@ describe("/api/dubs upload + create + list + cancel", () => {
 
 describe("health advertises dubs scaffold", () => {
   it("reports management and processing capabilities separately", async () => {
-    const processorBindings = { ...bindings, DUB_PROCESSOR_ENABLED: "true" };
     const res = await app.request("/api/health", {}, processorBindings);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {

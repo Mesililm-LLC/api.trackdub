@@ -2,6 +2,7 @@
   "name": "trackdub-api",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "bun@1.3.14",
   "type": "module",
   "description": "api.trackdub.com — Cloudflare Worker backend (Better Auth + D1 + Drizzle) for the Trackdub portal.",
   "scripts": {
@@ -25,31 +26,29 @@
     "db:migrate:activation:local": "wrangler d1 migrations apply trackdub_activation --local --config wrangler.activation.jsonc",
     "db:migrate:activation:remote": "wrangler d1 migrations apply trackdub_activation --remote --config wrangler.activation.jsonc",
     "db:migrate:activation:staging:remote": "wrangler d1 migrations apply trackdub_activation_staging --remote --config wrangler.activation.staging.jsonc",
-    "test:all": "npm run test && npm run test:activation"
+    "test:all": "bun run test && bun run test:activation"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "^2.0.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/server": "2.0.0",
     "agents": "^0.24.0",
-    "better-auth": "^1.3.10",
+    "better-auth": "1.6.25",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.8",
     "zod": "^3.25.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
-    "@cloudflare/workers-types": "^5.20260722.1",
+    "@cloudflare/workers-types": "5.20260922.1",
     "drizzle-kit": "^0.31.10",
     "typescript": "^7.0.0",
     "vitest": "^4.1.11",
     "wrangler": "^4.124.0"
   },
-  "allowScripts": {
-    "esbuild": true,
-    "workerd": true,
-    "sharp": true,
-    "@cloudflare/workerd-linux-64": true,
-    "@cloudflare/workerd-windows-64": true
+  "overrides": {
+    "@modelcontextprotocol/sdk": {
+      "zod": "3.25.76"
+    }
   }
 }

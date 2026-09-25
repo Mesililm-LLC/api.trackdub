@@ -37,12 +37,18 @@ export function createDocsRagServer(env: DocsRagBindings, clientKey: string): Mc
         "Curated Trackdub + vendor documentation search (R2 corpus indexed by Cloudflare AI Search). " +
         "Covers Trackdub, Trackdub-gated, api.trackdub first-party docs and pinned vendor docs " +
         "(NVIDIA TRT-RTX/EP ABI, Windows ML, ONNX Runtime EPs, AMD, Intel, Qualcomm, Qwen, Whisper, speech models). " +
-        "First-party text outranks vendor /latest/ pages on disagreement. Trackdub pins TensorRT-RTX EP ABI 0.3.0 cu12.",
+        "First-party text outranks vendor /latest/ pages on disagreement. Trackdub pins TensorRT-RTX EP ABI 0.3.0 cu12. " +
+        "Each tool call is stateless: compose every query as self-contained (include symbols, product names, and concrete context — " +
+        "never bare follow-ups like 'what about its limitations?'; restate the full question instead).",
     },
   );
 
   const searchShape = {
-    query: z.string().min(1).describe("Search text. Implementation-detail queries work best (API names, flags, file names)."),
+    query: z.string().min(1).describe(
+      "Self-contained search text. This call is stateless: no prior queries are remembered. " +
+      "Include symbols/API names and concrete context (e.g. 'NvTensorRTRTXExecutionProvider session bootstrap download policy', " +
+      "not 'its limitations').",
+    ),
     scope: z
       .enum(DOC_SCOPES)
       .optional()
@@ -78,7 +84,9 @@ export function createDocsRagServer(env: DocsRagBindings, clientKey: string): Mc
     {
       title: "Ask Trackdub docs",
       description:
-        "Answer a question from the corpus using Workers AI generation with retrieved context. Slower and rate-limited tighter than search; prefer search_trackdub_docs when you just need chunks. Answers state when the corpus lacks the answer.",
+        "Answer a question from the corpus using Workers AI generation with retrieved context. Slower and rate-limited tighter " +
+        "than search; prefer search_trackdub_docs when you just need chunks. Answers state when the corpus lacks the answer. " +
+        "Stateless: the rewriter cannot resolve follow-ups — restate the full question with context, never send 'what about X?'.",
       inputSchema: searchShape,
     },
     async (args, _extra): Promise<ToolResult> => {

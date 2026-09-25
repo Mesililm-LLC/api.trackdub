@@ -13,7 +13,7 @@ const bindings = {
   DUB_PROCESSOR_ENABLED: "true",
 };
 
-const processorBindings = bindings;
+const processorBindings = { ...bindings, DUB_PROCESSOR_ENABLED: "true" };
 
 const USER = {
   email: "dubs-user@example.com",

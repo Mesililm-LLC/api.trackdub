@@ -1,6 +1,6 @@
 {
   "name": "api.trackdub",
-  "install": "npm ci",
+  "install": "bun install --frozen-lockfile",
   "egressAllowlist": [
     "registry.npmjs.org",
     "api.cloudflare.com",

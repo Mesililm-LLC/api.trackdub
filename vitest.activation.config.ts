@@ -26,7 +26,7 @@ export default defineConfig(async () => {
     plugins: [
       cloudflareTest({
         wrangler: { configPath: "./wrangler.activation.jsonc" },
-        poolOptions: {
+        miniflare: {
           bindings: {
             APP_ENV: "development",
             ACTIVATION_ISSUER: "https://activate.trackdub.com",

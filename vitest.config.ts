@@ -22,7 +22,7 @@ export default defineConfig(async () => {
     plugins: [
       cloudflareTest({
         wrangler: { configPath: "./wrangler.jsonc" },
-        poolOptions: {
+        miniflare: {
           bindings: {
             APP_ENV: "development",
             PORTAL_ORIGIN: "https://portal.trackdub.com",

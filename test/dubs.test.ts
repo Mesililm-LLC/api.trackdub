@@ -467,9 +467,9 @@ describe("/api/dubs upload + create + list + cancel", () => {
           targetLanguage: "it",
           inputMediaPath: filePath,
         }),
-      processorBindings,
+      },
+      bindings,
     );
-    bindings,
     const created = (await create.json()) as { id: string };
 
     // Simulate a future pipeline worker writing output + marking Completed.
@@ -566,8 +566,8 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      processorBindings,
-    bindings,
+      bindings,
+    );
     const created = (await create.json()) as { id: string };
 
     // Simulate a worker finishing between our ownership load and cancel UPDATE.

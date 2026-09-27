@@ -56,13 +56,13 @@ Copy `.dev.vars.example` → `.dev.vars` for local development.
 ## Develop
 
 ```bash
-npm install
+bun install --frozen-lockfile
 cp .dev.vars.example .dev.vars   # then fill in secrets
-npm run db:generate              # regenerate migrations after schema changes
-npm run db:migrate:local         # apply migrations to local D1
-npm run dev                      # wrangler dev
-npm test                         # vitest (workerd)
-npm run typecheck                # tsc --noEmit
+bun run db:generate              # regenerate migrations after schema changes
+bun run db:migrate:local         # apply migrations to local D1
+bun run dev                      # wrangler dev
+bun test                         # vitest (workerd)
+bun run typecheck                # tsc --noEmit
 ```
 
 ## Deploy
@@ -90,14 +90,14 @@ npm run typecheck                # tsc --noEmit
 4. **Apply migrations** to the remote D1:
 
    ```bash
-   npm run db:migrate:remote
+   bun run db:migrate:remote
    ```
 
 5. **Deploy** and attach the custom domain (`api.trackdub.com` is configured as a
    `custom_domain` route in `wrangler.jsonc`):
 
    ```bash
-   npm run deploy
+   bun run deploy
    ```
 
 6. **Verify:**

@@ -360,8 +360,8 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: `uploads/${userId}/${crypto.randomUUID()}/nope.wav`,
         }),
       },
-      processorBindings,
     bindings,
+    );
     expect(missing.status).toBe(400);
     const missingBody = (await missing.json()) as { error: { message: string } };
     expect(missingBody.error.message).toMatch(/does not exist in media storage/i);
@@ -440,15 +440,15 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      processorBindings,
     bindings,
+    );
     const created = (await create.json()) as { id: string };
 
     const peek = await app.request(
       `/api/dubs/${created.id}`,
       { headers: { Cookie: otherCookie } },
-      processorBindings,
     bindings,
+    );
     expect(peek.status).toBe(404);
   });
 
@@ -467,8 +467,8 @@ describe("/api/dubs upload + create + list + cancel", () => {
           targetLanguage: "it",
           inputMediaPath: filePath,
         }),
-      },
       processorBindings,
+    );
     bindings,
     const created = (await create.json()) as { id: string };
 
@@ -595,8 +595,8 @@ describe("/api/dubs upload + create + list + cancel", () => {
     const detail = await app.request(
       `/api/dubs/${created.id}`,
       { headers: { Cookie: cookie } },
-      processorBindings,
     bindings,
+    );
     const detailBody = (await detail.json()) as { status: string };
     expect(detailBody.status).toBe("Completed");
   });
@@ -617,8 +617,8 @@ describe("/api/dubs upload + create + list + cancel", () => {
           inputMediaPath: filePath,
         }),
       },
-      processorBindings,
     bindings,
+    );
     const created = (await create.json()) as { id: string };
 
     const outputKey = `outputs/${created.id}/dubbed.mp4`;

@@ -54,13 +54,12 @@ until a real worker consumes queued jobs. `availablePipelines` separates
   (`src/api/hooks/useLanguages.ts`) that accepts several envelopes and falls
   back to a static list.
 - We return its documented preferred shape: `{ items: [{ code, name }] }`.
-- **Coverage difference:** the portal's *fallback* list includes Chinese (`zh`)
-  and a few others. The authoritative catalog we serve (mirroring the desktop
-  app's real TTS coverage, `src/lib/languages.ts`) is **22 languages and
-  excludes Chinese**, because it is disabled in the multilingual TTS model.
-  Advertising `zh` would fake dubbing readiness.
-- **Action:** portal fallback is cosmetic; the Worker list is authoritative.
-  Align the portal fallback if exactness matters offline.
+- **Coverage:** the catalog we serve (`src/lib/languages.ts`) mirrors the desktop
+  app's translation coverage, `TranslationLanguageCoverageMatrix`: the 22-language
+  Chatterbox multilingual set **plus Chinese** (23 languages). Chinese dubs with
+  CosyVoice clones or Qwen3 CustomVoice Mandarin presets, since the Chatterbox
+  models do not speak it. The portal's *fallback* list is cosmetic; the Worker
+  list is authoritative.
 - **Auth:** endpoint is public (no session required) — populating a language
   dropdown shouldn't require signing in first.
 

@@ -2,8 +2,9 @@
  * Static language catalog served by `GET /api/languages`.
  *
  * This mirrors the translation coverage baked into the Trackdub desktop app
- * (Chatterbox multilingual TTS set, 22 languages; Chinese intentionally
- * excluded because it is disabled in the multilingual TTS model). Serving it
+ * (`TranslationLanguageCoverageMatrix`: the 22-language Chatterbox multilingual
+ * set plus Chinese, which dubs with CosyVoice clones or Qwen3 CustomVoice
+ * Mandarin presets because the Chatterbox models do not speak it). Serving it
  * statically here proves authenticated API routing works end-to-end without a
  * database round-trip. When the backend later reads live model coverage, this
  * list becomes the fallback.
@@ -36,4 +37,5 @@ export const LANGUAGES: readonly Language[] = [
   { code: "sv", name: "Swedish" },
   { code: "sw", name: "Swahili" },
   { code: "tr", name: "Turkish" },
+  { code: "zh", name: "Chinese" },
 ] as const;

@@ -1,11 +1,20 @@
 import { describe, it, expect } from "vitest";
 import app from "@/activation/index";
 import { sha256Hex } from "@/activation/lib/jwt";
+import pkg from "../../package.json";
 import { bindings, seedLicense, fingerprint } from "./helpers";
 
 const DEV_UNLIMITED_LICENSE_KEY = "TDUB-DEV-UNLIMITED-LOCAL";
 
 describe("dev-unlimited license key", () => {
+  it("is the row that `npm run db:seed:activation:dev-license` seeds", async () => {
+    // The seed script hardcodes the key's hash (an npm script can't compute it). If the
+    // key or the literal drifts, /activate answers invalid_key with no hint why, and no
+    // other test would notice.
+    const script = pkg.scripts["db:seed:activation:dev-license"];
+    expect(script).toContain(await sha256Hex(DEV_UNLIMITED_LICENSE_KEY));
+  });
+
   it("bypasses max_machines when ALLOW_DEV_LICENSES=true", async () => {
     // Seed the fixed dev key hash so lookupLicenseByKey resolves it, same as
     // production requires (the key must exist in D1 — this Worker never

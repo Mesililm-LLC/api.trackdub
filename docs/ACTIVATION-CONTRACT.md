@@ -192,10 +192,13 @@ that issuer, signing with the private half of that ring's public key
 (`DefaultDevPublicKeyPem`). That private key is dev-only and must never be a production
 key. Generate one with `Trackdub.Licensing.Tooling generate-key` (or any P-256 PKCS#8
 keypair), put the public half in `DefaultDevPublicKeyPem`, and add the private half to
-the git-ignored `.dev.vars` as one line with `\n` escapes:
+the git-ignored `.dev.vars` as one line with `\n` escapes. The Worker also refuses to boot
+without `ADMIN_API_TOKEN` (at least 16 characters); any local-only string works, and if
+`.dev.vars` already has one for the portal Worker, reuse it. Never use the production token:
 
 ```
 SIGNING_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+ADMIN_API_TOKEN="any-local-only-string-of-16-or-more-characters"
 ```
 
 Then, in this repo:

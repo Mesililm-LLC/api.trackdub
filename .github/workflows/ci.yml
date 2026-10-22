@@ -24,3 +24,31 @@ jobs:
 
       - name: Run all tests
         run: bun run test:all
+
+  infra:
+    name: Infra synth & container build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Install infra dependencies
+        working-directory: infra
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck infra
+        working-directory: infra
+        run: bun run typecheck
+
+      - name: Synthesize CDK app (no AWS changes)
+        working-directory: infra
+        run: bunx cdk synth --quiet
+        env:
+          CDK_DEFAULT_ACCOUNT: "254587346070"
+          CDK_DEFAULT_REGION: us-east-1
+
+      - name: Build container image
+        run: docker build -t trackdub-api:ci .

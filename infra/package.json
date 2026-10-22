@@ -1,0 +1,21 @@
+{
+  "name": "trackdub-api-infra",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AWS CDK app for api.trackdub (ECS Fargate, RDS PostgreSQL, S3). Synth-only until a deploy is approved.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "synth": "cdk synth",
+    "diff": "cdk diff"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.274.0",
+    "constructs": "^10.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "aws-cdk": "^2.1146.0",
+    "typescript": "^5.9"
+  }
+}

@@ -18,7 +18,7 @@ export class RegistryStack extends Stack {
       imageTagMutability: ecr.TagMutability.IMMUTABLE,
       imageScanOnPush: true,
       removalPolicy: RemovalPolicy.RETAIN,
-      lifecycleRules: [{ description: "Keep the 30 most recent images", maxImageCount: 30 }],
+      lifecycleRules: [{ description: "Keep the 10 most recent images", maxImageCount: 10 }],
     });
   }
 }

@@ -2,35 +2,36 @@ import { Hono } from "hono";
 import { loadConfig } from "@/config/env";
 import { logger } from "@/lib/logger";
 import { dubCapabilities } from "@/lib/capabilities";
+import type { SqlDatabase } from "@/platform/sql";
 import type { AppEnv } from "@/types/env";
 
 /**
  * Health endpoints. The portal's OpenAPI contract expects three:
  *   GET /api/health        — detailed status (HealthResponse)
- *   GET /api/health/live   — liveness (Worker responding)   200 | 503
- *   GET /api/health/ready  — readiness (D1 reachable)       200 | 503
+ *   GET /api/health/live   — liveness (process responding)  200 | 503
+ *   GET /api/health/ready  — readiness (database reachable) 200 | 503
  *
  * `/api/version` (build metadata) is exposed as a sibling in routes/version.ts.
  */
 export const health = new Hono<AppEnv>();
 
-async function pingDb(db: D1Database): Promise<boolean> {
+async function pingDb(db: SqlDatabase): Promise<boolean> {
   try {
     await db.prepare("SELECT 1").first();
     return true;
   } catch (err) {
-    logger.warn("d1 health probe failed", {
+    logger.warn("database health probe failed", {
       message: err instanceof Error ? err.message : String(err),
     });
     return false;
   }
 }
 
-/** True when the dub_jobs migration is present (not just D1 reachable). */
-async function dubsSchemaReady(db: D1Database): Promise<boolean> {
+/** True when the dub_jobs migration is present (not just the database reachable). */
+async function dubsSchemaReady(db: SqlDatabase): Promise<boolean> {
   try {
     const row = await db
-      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'dub_jobs' LIMIT 1")
+      .prepare("SELECT 1 AS ok WHERE to_regclass('dub_jobs') IS NOT NULL")
       .first<{ ok: number }>();
     return row?.ok === 1;
   } catch (err) {
@@ -44,7 +45,7 @@ async function dubsSchemaReady(db: D1Database): Promise<boolean> {
 // Liveness: process is alive and routing works. No dependencies checked.
 health.get("/live", (c) => c.json({ status: "ok" }, 200));
 
-// Readiness: safe to receive traffic — requires D1 reachable.
+// Readiness: safe to receive traffic — requires the database reachable.
 health.get("/ready", async (c) => {
   const dbOk = await pingDb(c.env.DB);
   return dbOk
@@ -66,10 +67,10 @@ health.get("/", async (c) => {
     {
       status: dbOk ? "healthy" : "degraded",
       timestamp: new Date().toISOString(),
-      runtimeStatus: "cloudflare-workers",
+      runtimeStatus: "container",
       environment: config.public.APP_ENV,
-      // Worker-model fields (processId/uptime/memoryMb) are not meaningful on
-      // the edge runtime; see docs/CONTRACT-MISMATCHES.md. Returned as null.
+      // processId/uptime/memoryMb are not reported; see
+      // docs/CONTRACT-MISMATCHES.md. Returned as null.
       processId: null,
       uptime: null,
       memoryMb: null,

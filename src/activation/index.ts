@@ -8,9 +8,9 @@ import { admin } from "@/activation/routes/admin";
 import type { ActivationEnv } from "@/activation/types";
 
 /**
- * Activation Worker entrypoint — deployed separately from the portal API
- * (see wrangler.activation.jsonc / wrangler.activation.staging.jsonc), with
- * its own D1 and its own SIGNING_KEY, so a bug in a portal route can never
+ * Activation service entrypoint — deployed separately from the portal API
+ * (`SERVICE=activation` in server/main.ts), with its own database and its own
+ * SIGNING_KEY, so a bug in a portal route can never
  * reach the license signing key. See docs/ACTIVATION-CONTRACT.md for the
  * desktop wire contract this Worker implements.
  *

@@ -11,7 +11,7 @@ import type { Bindings } from "@/types/env";
  * Config is grouped deliberately:
  *   - secrets:  never logged, never sent to the client
  *   - public:   safe to expose (origins, environment name)
- *   - bindings: runtime objects (D1, R2) — presence-checked, not parsed
+ *   - bindings: runtime objects (database, object store) — presence-checked, not parsed
  */
 
 const secretsSchema = z.object({
@@ -58,8 +58,8 @@ export function loadConfig(env: Bindings): AppConfig {
   const issues: string[] = [];
 
   // Bindings are runtime objects — presence check only.
-  if (!env.DB) issues.push("D1 binding `DB` is not bound");
-  if (!env.MEDIA) issues.push("R2 binding `MEDIA` is not bound");
+  if (!env.DB) issues.push("database binding `DB` is not bound");
+  if (!env.MEDIA) issues.push("object store binding `MEDIA` is not bound");
 
   const secrets = secretsSchema.safeParse(env);
   if (!secrets.success) {

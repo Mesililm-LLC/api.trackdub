@@ -1,13 +1,19 @@
-import { drizzle } from "drizzle-orm/d1";
-import { schema } from "./schema";
+import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import type { SqlDatabase } from "@/platform/sql";
+import type { schema } from "./schema";
 
-export type Database = ReturnType<typeof createDb>;
+/** Drizzle client over the portal schema, independent of the PostgreSQL driver. */
+export type OrmDatabase = PgDatabase<PgQueryResultHKT, typeof schema>;
 
 /**
- * Build a Drizzle client over the request-scoped D1 binding. D1 has no
- * connection pool — the binding is created per request by the runtime, so we
- * construct the client per request rather than caching a global.
+ * The portal's `DB` binding: raw SQL (health probe) plus the Drizzle client
+ * used by auth and the dub job routes. Built once per process by the runtime
+ * (`server/bindings.ts`); tests build one over an in-process PostgreSQL.
  */
-export function createDb(d1: D1Database) {
-  return drizzle(d1, { schema });
+export interface Database extends SqlDatabase {
+  readonly orm: OrmDatabase;
+}
+
+export function createDb(db: Database): OrmDatabase {
+  return db.orm;
 }

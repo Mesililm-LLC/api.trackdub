@@ -2,7 +2,13 @@
 
 Status: **scaffold built on branch `aws/fargate-scaffold`, nothing deployed.** Chosen direction (2026-10-21): ECS Fargate for compute, RDS PostgreSQL for data, move the API, the activation service, and data off Cloudflare.
 
-Built so far: [Dockerfile](../../Dockerfile) and container entry ([server/](../../server)), and a CDK app ([infra/](../../infra/README.md)) that synthesizes registry, network, data, and service stacks for staging and production. Still to do: the application port (Drizzle D1 to Postgres, raw SQL in activation, S3 adapter), the data migration, and the deploy.
+Built so far (branch `aws/fargate-scaffold`, nothing deployed):
+
+- [Dockerfile](../../Dockerfile) and container entry ([server/](../../server)): one image, `SERVICE=api|activation`, `/healthz`, a migration runner, and a database bootstrap script.
+- **Application port, done and tested:** Drizzle moved from D1 (SQLite) to PostgreSQL (`migrations/portal`, `migrations/activation`); the raw activation SQL is ported with a per-license row lock so seat limits hold under concurrent requests; `MEDIA` moved from R2 to an S3-backed `ObjectStore`. Unit tests run on an in-process PostgreSQL (163 portal + 27 activation); a real-PostgreSQL concurrency suite (`bun run test:integration`) proves the lock (with it disabled, 25 of 25 racing requests got a seat on a 3-seat license).
+- A CDK app ([infra/](../../infra/README.md)) that synthesizes registry, network, data, and service stacks for staging and production.
+
+Still to do: the D1/R2 data export and import, the deploy itself, and the DNS cutover.
 
 ## Current Cloudflare footprint
 
@@ -18,13 +24,16 @@ The docs-RAG piece is **not** in the original scope, but it lives in this repo a
 
 ## Porting work (code)
 
-1. **Runtime.** Replace the Worker `export default` with a Node server entry using `@hono/node-server`. Hono's routes are portable as-is. Add a `Dockerfile` (Bun or Node base image) and a health route for the ALB.
-2. **Database.** Switch Drizzle from `drizzle-orm/d1` to `drizzle-orm/node-postgres` (or `postgres-js`). Regenerate migrations under a Postgres dialect. Keep a separate `drizzle-activation` migration set.
-3. **Raw SQL in activation.** `src/activation/routes/*.ts` and `lib/seats.ts` use SQLite-flavored `prepare(...)`. Port each statement to Postgres parameters (`$1`, not `?`). The seat-claim atomicity (`COUNT(*) < max_machines` in the same UPDATE/INSERT) must be preserved; re-verify it under concurrent load on Postgres, since the isolation level now matters.
-4. **Object storage.** Replace the `MEDIA` R2 binding with the AWS SDK v3 S3 client (`@aws-sdk/client-s3`) against an S3 bucket. Presigned uploads are a reasonable target. Keep the same key layout so existing objects can be copied with `aws s3 sync` or a `rclone` copy from R2 (R2 speaks the S3 API).
-5. **Config.** Replace `wrangler.jsonc` vars/secrets with AWS Secrets Manager (or SSM Parameter Store) injected as env vars into the task definition. Keep `src/config/env.ts` validation unchanged, so a missing secret still fails fast at boot rather than at the first request.
-6. **Logging.** Replace the Workers logs path with stdout JSON to CloudWatch Logs (the existing `logger` already emits JSON).
-7. **Tests.** `@cloudflare/vitest-pool-workers` runs inside `workerd`. Those tests will need a Node/Vitest pool, and the D1/R2 fakes need replacing with a Postgres test container and an S3-compatible fake (e.g. MinIO).
+All of this is done on the branch except where marked.
+
+1. **Runtime.** `server/main.ts` serves the Hono apps under Bun (`/healthz` for the ALB). `src/index.ts` and `src/activation/index.ts` are unchanged apart from types.
+2. **Database.** Drizzle uses `pg-core`; the driver is postgres.js (`server/postgres.ts`). Tests use PGlite behind the same interfaces (`src/platform/sql.ts`). Migrations were regenerated for PostgreSQL.
+3. **Raw SQL in activation.** Statements are ported (`$n` placeholders, `ON CONFLICT`, explicit casts, `COUNT(*)::int`). **Concurrency changed:** SQLite serialized writes, so a count predicate inside one statement was enough. PostgreSQL does not, so every seat change takes a `FOR UPDATE` lock on the license row inside a transaction. Without it, concurrent activations oversubscribe a license.
+4. **Object storage.** `MEDIA` is an `ObjectStore` (`src/platform/objects.ts`) backed by S3 (`server/s3.ts`); tests use an in-memory store.
+5. **Config.** The app still validates configuration on first request. In AWS the values come from the task definition and Secrets Manager.
+6. **Logging.** The existing JSON logger writes to stdout (CloudWatch Logs).
+7. **Tests.** The workerd pool is gone for these suites. Existing tests keep their `cloudflare:test` import, aliased to a Node support module.
+8. **Not done:** wiring migrations into a pipeline, and pinning the RDS CA for TLS verification.
 
 ## AWS infrastructure
 
@@ -41,10 +50,14 @@ The docs-RAG piece is **not** in the original scope, but it lives in this repo a
 ## Data migration (D1 → Postgres)
 
 1. Export D1 with `wrangler d1 export` (SQL dump) for `trackdub_api` and both activation databases.
-2. Transform the SQLite dump to Postgres DDL and data (types, `AUTOINCREMENT` → identity, boolean and timestamp handling). Drizzle-generated Postgres migrations are the target schema; load data after the schema, not before.
+2. Load into PostgreSQL **after** the schema exists (run `server/migrate.ts` first), not from the SQLite DDL. Transform on the way in:
+   - Portal tables store timestamps as epoch milliseconds: `to_timestamp(ms / 1000.0)`.
+   - Better Auth `email_verified` is `0/1` in SQLite: cast to boolean.
+   - Activation `created_at` / `activated_at` / `released_at` are ISO-8601 text: cast to `timestamptz`.
 3. Load into staging RDS first, then run the verification queries below.
-4. **Auth users and sessions:** Better Auth tables move with the data. Sessions will be invalidated if `BETTER_AUTH_SECRET` changes, so keep the existing secret.
+4. **Auth users and sessions:** Better Auth tables move with the data. Sessions stay valid only if `BETTER_AUTH_SECRET` is unchanged, so keep the existing secret.
 5. **Activation seats and licenses:** these must move exactly. A license that has an active seat on the old system must have the same seat on the new one, or the desktop app will show an unexpected activation limit.
+6. **Media objects:** copy the R2 bucket to S3 with the same keys (`rclone` works against both; R2 speaks the S3 API).
 
 Verification: row counts per table on both sides, a checksum of `licenses` and `activations`, and a sample of 20 license keys checked through `/status` before and after.
 

@@ -1,118 +1,132 @@
 # trackdub-api
 
-**api.trackdub.com** — Cloudflare Worker backend for the Trackdub portal.
-Better Auth + D1 + Drizzle + Hono. This repo owns authentication, authorization,
+**api.trackdub.com** — backend for the Trackdub portal, plus the desktop license
+activation service. Better Auth + PostgreSQL + Drizzle + Hono, running as a
+container on AWS (ECS Fargate). This repo owns authentication, authorization,
 and API routing. The portal (`portal.trackdub.com`) is a browser-only SPA that
-talks to this Worker with `credentials: "include"`; no backend logic lives in
-the portal.
+talks to this API with `credentials: "include"`; no backend logic lives in the
+portal.
+
+> **Hosting:** this branch targets **AWS** (see [docs/plans/aws-migration.md](docs/plans/aws-migration.md)
+> and [infra/README.md](infra/README.md)). The Cloudflare Workers deployment on
+> `main` stays live until cutover. The docs-RAG Worker (`src/docs-rag/`) stays on
+> Cloudflare.
 
 > **Scope:** Auth, health, version, languages, admin invite, and the **dubs job
-> scaffold** (`/api/dubs*`: upload to R2, create/list/get/cancel Queued jobs).
-> Billing, keys, webhooks, and the real cloud dub pipeline worker are still
-> later work. Jobs do **not** auto-complete.
+> scaffold** (`/api/dubs*`: upload to object storage, create/list/get/cancel
+> Queued jobs). Billing, keys, webhooks, and the real cloud dub pipeline worker
+> are still later work. Jobs do **not** auto-complete.
 
 ## Stack
 
-- **Cloudflare Workers** (`src/index.ts`, Hono app)
+- **Hono** app (`src/index.ts` portal API, `src/activation/index.ts` activation), served from `server/main.ts`
 - **Better Auth** — email/password, invite-only, host-only session cookies
-- **Cloudflare D1** (SQLite) via **Drizzle ORM** + Drizzle Kit migrations
-- **Cloudflare R2** (`MEDIA` binding) — media uploads for `/api/dubs/upload`
+- **PostgreSQL** (RDS in AWS) via **Drizzle ORM** + Drizzle Kit migrations; hand-written SQL for activation seat accounting
+- **S3** — media uploads for `/api/dubs/upload`
 - **Zod** for config + request validation
-- **Vitest** (`@cloudflare/vitest-pool-workers`) — tests run in real `workerd`
+- **Vitest** — unit tests run in Node against an in-process PostgreSQL ([PGlite](https://pglite.dev)); concurrency tests run against a real PostgreSQL
+
+One container image serves both services; `SERVICE=api` (default) or
+`SERVICE=activation` selects which app runs.
 
 ## Layout
 
 ```
 src/
-  index.ts          Worker entry: middleware chain + route mounting
+  index.ts          Portal API app: middleware chain + route mounting
+  activation/       License activation app (own routes, schema, seat accounting)
   config/env.ts     Fail-fast config validation (secrets / public / bindings)
   auth/             Better Auth factory + invite provisioning
-  db/               Drizzle client + Better Auth schema
+  db/               Drizzle client type + Better Auth / dub job schema
+  platform/         SqlDatabase and ObjectStore interfaces the app depends on
   middleware/       request-id, logging, error, auth, authorize, validate
-  routes/           health, version, languages, admin (invite)
+  routes/           health, version, languages, admin (invite), dubs
   lib/              logger, errors, crypto, static languages
-  types/            Bindings + Hono Variables
-drizzle/            Generated SQL migrations (also wrangler migrations_dir)
-test/               health, cors, error, auth-middleware, session
-docs/               ARCHITECTURE.md, CONTRACT-MISMATCHES.md
+  docs-rag/         Cloudflare Worker (docs search MCP) — not part of the container
+server/             Container runtime: entrypoint, postgres.js + S3 drivers, migrate
+migrations/         Generated PostgreSQL migrations (portal/, activation/)
+infra/              AWS CDK app (see infra/README.md)
+drizzle/            Legacy Cloudflare D1 (SQLite) migrations, kept for the data export
+test/               Unit tests (PGlite); test/integration needs a real PostgreSQL
+docs/               ARCHITECTURE.md, CONTRACT-MISMATCHES.md, ACTIVATION-CONTRACT.md, plans/
 ```
 
 ## Environment variables
 
-| Name                  | Kind    | Where set                                   | Notes |
-| --------------------- | ------- | ------------------------------------------- | ----- |
-| `APP_ENV`             | public  | `wrangler.jsonc` → `vars`                   | `development` \| `staging` \| `production` |
-| `PORTAL_ORIGIN`       | public  | `wrangler.jsonc` → `vars`                   | Exact portal origin, e.g. `https://portal.trackdub.com`. Drives CORS + trustedOrigins. |
-| `BETTER_AUTH_SECRET`  | secret  | `.dev.vars` (local) / `wrangler secret put` | ≥16 chars. `openssl rand -base64 32`. Signs sessions. |
-| `ADMIN_API_TOKEN`     | secret  | `.dev.vars` (local) / `wrangler secret put` | ≥16 chars. Guards the invite endpoint. |
-| `DB`                  | binding | `wrangler.jsonc` → `d1_databases`           | D1 database. |
-| `MEDIA`               | binding | `wrangler.jsonc` → `r2_buckets`             | R2 bucket for `/api/dubs/upload` (and later download outputs). |
+See [.dev.vars.example](.dev.vars.example) for the full list. In AWS the public
+values come from the ECS task definition and secrets from Secrets Manager
+(wired in `infra/lib/service-stack.ts`).
+
+| Name                              | Kind    | Notes |
+| --------------------------------- | ------- | ----- |
+| `SERVICE`                         | public  | `api` (default) or `activation`. |
+| `APP_ENV`                         | public  | `development` \| `staging` \| `production` |
+| `PORTAL_ORIGIN`                   | public  | Exact portal origin, e.g. `https://portal.trackdub.com`. Drives CORS + trustedOrigins. |
+| `DATABASE_HOST/PORT/NAME/USER/PASSWORD` | public / secret | PostgreSQL connection. `DATABASE_SSL=disable` for local development only. |
+| `MEDIA_BUCKET`, `AWS_REGION`      | public  | S3 bucket for uploads (api only). Credentials come from the task role. |
+| `BETTER_AUTH_SECRET`              | secret  | ≥16 chars. `openssl rand -base64 32`. Signs sessions. |
+| `ADMIN_API_TOKEN`                 | secret  | ≥16 chars. Guards the invite endpoint. |
+| `GIT_SHA`, `BUILD_ID`             | public  | Reported by `GET /api/version`. |
 
 Config is validated on first request (`src/config/env.ts`); anything missing or
-malformed fails fast with a clear, secret-free error.
-
-Copy `.dev.vars.example` → `.dev.vars` for local development.
+malformed fails fast with a clear, secret-free error. If `DATABASE_*` or
+`MEDIA_BUCKET` are unset, the container still starts and answers `/healthz`, and
+every other route reports which binding is missing.
 
 ## Develop
 
 ```bash
 bun install --frozen-lockfile
-cp .dev.vars.example .dev.vars   # then fill in secrets
-bun run db:generate              # regenerate migrations after schema changes
-bun run db:migrate:local         # apply migrations to local D1
-bun run dev                      # wrangler dev
-bun test                         # vitest (workerd)
-bun run typecheck                # tsc --noEmit
+docker compose up -d                 # PostgreSQL + MinIO (S3-compatible)
+cp .dev.vars.example .env            # bun loads .env automatically; fill in secrets
+bun run db:migrate                   # apply migrations/portal
+bun run dev                          # server/main.ts with --watch
+bun run typecheck                    # tsc --noEmit
+bun run test:all                     # portal + activation suites (PGlite, no database needed)
+TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres bun run test:integration
 ```
+
+After changing `src/db/schema.ts` or `src/activation/schema.ts`, regenerate
+migrations with `bun run db:generate` / `bun run db:generate:activation` and
+commit the new files under `migrations/`.
+
+The old Cloudflare Worker scripts are kept as `legacy:*` (for example
+`legacy:deploy`) until cutover is complete. They no longer work from this branch:
+the code now expects PostgreSQL and S3 bindings, not D1 and R2.
+
+## Run the container
+
+```bash
+docker build -t trackdub-api .
+docker run --rm -p 8080:8080 --env-file .env trackdub-api         # SERVICE=api
+docker run --rm -e SERVICE=activation --env-file .env trackdub-api  # activation
+```
+
+`GET /healthz` is the liveness probe the load balancer uses (no dependencies).
+`GET /api/health/ready` checks the database. Run migrations as a one-off task
+with the same image: `bun run server/migrate.ts` (uses `SERVICE` to pick
+`migrations/portal` or `migrations/activation`).
 
 ## Deploy
 
-1. **Create the D1 database** and paste its id into `wrangler.jsonc`
-   (`d1_databases[0].database_id`):
+Deployment is described in [infra/README.md](infra/README.md): CDK stacks for
+the registry, network, data, and services; first-deploy steps for secrets,
+database bootstrap, migrations, and DNS. Nothing is deployed from this branch yet.
 
-   ```bash
-   npx wrangler d1 create trackdub_api
-   ```
+Verify after a deploy:
 
-2. **Create the R2 bucket** referenced by the `MEDIA` binding:
-
-   ```bash
-   npx wrangler r2 bucket create trackdub-media
-   ```
-
-3. **Set secrets** for the deployed Worker:
-
-   ```bash
-   npx wrangler secret put BETTER_AUTH_SECRET
-   npx wrangler secret put ADMIN_API_TOKEN
-   ```
-
-4. **Apply migrations** to the remote D1:
-
-   ```bash
-   bun run db:migrate:remote
-   ```
-
-5. **Deploy** and attach the custom domain (`api.trackdub.com` is configured as a
-   `custom_domain` route in `wrangler.jsonc`):
-
-   ```bash
-   bun run deploy
-   ```
-
-6. **Verify:**
-
-    ```bash
-    curl https://api.trackdub.com/api/health      # 200 { status: "healthy", ... }, or 503 { status: "degraded", ... } when D1 is down
-    curl https://api.trackdub.com/api/health/ready # 200 { status: "ready" }, or 503 { status: "unavailable", ... } when D1 is down
-    curl https://api.trackdub.com/api/version     # 200, build metadata from the CF_VERSION_METADATA binding ("unknown" locally)
-    ```
+```bash
+curl https://api.trackdub.com/healthz            # ok
+curl https://api.trackdub.com/api/health         # 200 { status: "healthy", ... }, or 503 { status: "degraded", ... } when the database is down
+curl https://api.trackdub.com/api/health/ready   # 200 { status: "ready" }, or 503 { status: "unavailable", ... }
+curl https://api.trackdub.com/api/version        # 200, build = BUILD_ID, commit = GIT_SHA ("unknown" when unset)
+```
 
 ## Bootstrap the first user
 
 Registration is invite-only, so seed the first operator with the admin token.
-Because PR1 ships no email provider, pass an initial `password` to seed directly
-(subsequent real invites omit `password` and use the reset flow):
+Because there is no email provider by default, pass an initial `password` to
+seed directly (subsequent real invites omit `password` and use the reset flow):
 
 ```bash
 curl -X POST https://api.trackdub.com/api/admin/invite \

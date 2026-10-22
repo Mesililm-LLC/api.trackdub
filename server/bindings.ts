@@ -1,33 +1,48 @@
 /**
  * Platform bindings for the container runtime.
  *
- * On Cloudflare the app receives `DB` (D1) and `MEDIA` (R2) as bindings. On AWS
- * the equivalents are a PostgreSQL database (RDS) and an S3 bucket. The route
- * and auth code currently talk to the D1 and R2 interfaces directly, so those
- * adapters are the remaining port work tracked in docs/plans/aws-migration.md:
+ * The route and auth code receive a Workers-style `env`. On AWS the `DB` and
+ * `MEDIA` entries are built here from the task environment:
  *
- *   - DB:    Drizzle moves from `drizzle-orm/d1` to `drizzle-orm/postgres-js`,
- *            and the raw `prepare(...)` SQL in src/activation/** is ported.
- *   - MEDIA: an S3-backed object with the put / head / get surface used by
- *            src/routes/dubs.ts.
+ *   api         DB    PostgreSQL (postgres.js + Drizzle)   DATABASE_*
+ *               MEDIA S3 bucket                            MEDIA_BUCKET, AWS_REGION
+ *   activation  DB    PostgreSQL (postgres.js, raw SQL)    DATABASE_*
  *
- * Until then this returns no bindings. The container still boots and answers
- * `/healthz`, and every other route fails with the same "binding not bound"
- * configuration error the app reports today, instead of failing silently.
+ * Connections are lazy, so a task starts and passes `/healthz` even when the
+ * database is down. When the database or bucket is not configured at all (for
+ * example `docker run` without a database), the binding is left out and the
+ * app reports the same "binding not bound" configuration error as before.
  */
+import { connectFromEnv, createPostgresDatabase, createPostgresSql } from "./postgres";
+import { createS3ObjectStore } from "./s3";
 import { processEnv } from "./process";
 
 export type ServiceName = "api" | "activation";
 
 export function createPlatformBindings(service: ServiceName): Record<string, unknown> {
-  console.warn(
-    JSON.stringify({
-      level: "warn",
-      msg: "platform bindings not implemented: DB and MEDIA are unbound",
-      service,
-      databaseHost: processEnv.DATABASE_HOST ?? null,
-      mediaBucket: processEnv.MEDIA_BUCKET ?? null,
-    }),
-  );
-  return {};
+  const bindings: Record<string, unknown> = {};
+  const missing: string[] = [];
+
+  const client = connectFromEnv(processEnv);
+  if (client) {
+    bindings.DB = service === "api" ? createPostgresDatabase(client) : createPostgresSql(client);
+  } else {
+    missing.push("DB (DATABASE_HOST / DATABASE_NAME / DATABASE_USER)");
+  }
+
+  if (service === "api") {
+    const bucket = processEnv.MEDIA_BUCKET;
+    if (bucket) {
+      bindings.MEDIA = createS3ObjectStore(bucket, processEnv.AWS_REGION);
+    } else {
+      missing.push("MEDIA (MEDIA_BUCKET)");
+    }
+  }
+
+  if (missing.length > 0) {
+    console.warn(
+      JSON.stringify({ level: "warn", msg: "platform bindings not configured", service, missing }),
+    );
+  }
+  return bindings;
 }

@@ -2,7 +2,7 @@
 
 AWS CDK (TypeScript) app for moving `api.trackdub` and the activation service from Cloudflare Workers to **ECS Fargate**, with **RDS PostgreSQL** and **S3**. See [docs/plans/aws-migration.md](../docs/plans/aws-migration.md) for the full plan and cutover order.
 
-**Status: scaffold only. Nothing has been deployed.** `cdk synth` passes; no stack has been created in AWS.
+**Status: nothing has been deployed.** `cdk synth` passes; no stack has been created in AWS. The application code now targets PostgreSQL and S3 (see the repo README); the steps below are what remains to stand it up.
 
 ## What it creates
 
@@ -43,13 +43,24 @@ These are intentionally not automated. Do them in order:
    - `BETTER_AUTH_SECRET` (production): must equal the current Cloudflare value or every session is invalidated at cutover.
    - Activation `SIGNING_KEY`: the existing ECC P-256 PKCS#8 PEM. Never regenerate; it must match the trust ring baked into desktop builds.
    - `RESEND_API_KEY`: optional; leave unset and password-reset mail is logged only.
-4. **Create the application roles and databases** in PostgreSQL using the generated `*DbCredentials` secrets (`trackdub_api_app` on `trackdub_api`, `trackdub_activation_app` on `trackdub_activation`). Run the Postgres migrations from the app port.
-5. **DNS (Cloudflare).** Add the ACM validation CNAMEs, then create DNS-only CNAMEs from the API and activation hostnames to the `AlbDnsName` stack output. At cutover, remove the Workers Custom Domain from each Worker first (it owns the record).
+4. **Bootstrap the databases** (once per environment). The RDS instance sits in an isolated subnet, so run this from somewhere that can reach it (an SSM port-forward through a bastion, or a one-off task in the VPC). It creates `trackdub_api_app` / `trackdub_activation_app`, each owning its own database and unable to connect to the other:
+   ```bash
+   BOOTSTRAP_ADMIN_URL="postgres://trackdub_admin:<admin password>@<rds-endpoint>:5432/postgres?sslmode=require" \
+   BOOTSTRAP_API_PASSWORD="<ApiDbCredentials password>" \
+   BOOTSTRAP_ACTIVATION_PASSWORD="<ActivationDbCredentials password>" \
+   bun run server/bootstrap-db.ts
+   ```
+   The admin password is the RDS-generated secret; the other two come from the `Data` stack secrets. The script is idempotent.
+5. **Run migrations** as a one-off ECS task per service, using the service's own task definition and overriding the command to `["bun","run","server/migrate.ts"]` (the task already has the right `SERVICE` and database credentials). Do this before the service takes traffic and before every release that changes `migrations/`.
+6. **DNS (Cloudflare).** Add the ACM validation CNAMEs, then create DNS-only CNAMEs from the API and activation hostnames to the `AlbDnsName` stack output. At cutover, remove the Workers Custom Domain from each Worker first (it owns the record).
 
 ## Known gaps
 
-- **The app cannot serve real traffic yet.** [server/bindings.ts](../server/bindings.ts) returns no database or object-store bindings, so only `/healthz` works. The remaining port is Drizzle D1 to Postgres (including the raw SQL in `src/activation/**`) and an S3 adapter for the `MEDIA` surface used by `src/routes/dubs.ts`.
+- **Data is not migrated yet.** The code and schema are ported (PostgreSQL migrations in `migrations/`), but existing Cloudflare D1 and R2 data still has to be exported and loaded. Timestamps change type: D1 stored epoch milliseconds (portal) and ISO text (activation); PostgreSQL uses `timestamptz`, so convert on import (`to_timestamp(ms / 1000.0)`). See [docs/plans/aws-migration.md](../docs/plans/aws-migration.md).
+- **Database TLS does not verify the CA.** `DATABASE_SSL` defaults to `require` (encrypted, no certificate check). Pin the RDS CA bundle as a hardening step.
+- **Migrations are a manual one-off task**, not a CDK-managed step. Wire it into the deploy pipeline once there is one.
 - **Staging API host is an assumption.** `api.trackdub.dev` is used because `activate.trackdub.dev` is the existing staging activation host; confirm before deploying staging.
 - **No WAF, no CloudFront.** Add AWS WAF on the ALB if rate limiting or bot protection is needed; Cloudflare no longer sits in front once DNS is DNS-only.
 - **Cost floor.** Roughly one ALB, one or two NAT gateways, Fargate tasks, and RDS per environment run all month regardless of traffic. Staging uses one NAT gateway and a single-AZ `t4g.micro`.
 - **Single-region.** No cross-region replica or backup copy is configured.
+- **Nothing has run in AWS.** The server, migrations and bootstrap were exercised against a real local PostgreSQL, and a production-only dependency install boots the server. The Docker image was built before the PostgreSQL/S3 port and has not been rebuilt since (the local Docker daemon was unresponsive), and no task has run on Fargate.

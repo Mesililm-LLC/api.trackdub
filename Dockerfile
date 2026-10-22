@@ -2,6 +2,8 @@
 #   SERVICE=api         portal API         (default)
 #   SERVICE=activation  license activation
 # See server/main.ts and docs/plans/aws-migration.md.
+# Migrations: run `bun run server/migrate.ts` as a one-off task (same image,
+# same SERVICE value) before rolling out a new version.
 
 FROM oven/bun:1.4.0 AS deps
 WORKDIR /app
@@ -18,6 +20,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json tsconfig.json ./
 COPY src ./src
 COPY server ./server
+COPY migrations ./migrations
 
 # Run as the unprivileged user shipped in the Bun image.
 USER bun

@@ -4,31 +4,37 @@
   "private": true,
   "packageManager": "bun@1.4.0",
   "type": "module",
-  "description": "api.trackdub.com — Cloudflare Worker backend (Better Auth + D1 + Drizzle) for the Trackdub portal.",
+  "description": "api.trackdub.com: Hono + Better Auth + PostgreSQL (Drizzle) backend for the Trackdub portal, plus the license activation service. Runs on AWS ECS Fargate; docs-rag stays a Cloudflare Worker.",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "bun run --watch server/main.ts",
+    "start": "bun run server/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 migrations apply trackdub_api --local",
-    "db:migrate:remote": "wrangler d1 migrations apply trackdub_api --remote",
-    "cf-typegen": "wrangler types",
-    "dev:docs-rag": "wrangler dev --config wrangler.docs-rag.jsonc",
-    "deploy:docs-rag": "wrangler deploy --config wrangler.docs-rag.jsonc",
-    "dev:activation": "wrangler dev --config wrangler.activation.jsonc",
-    "deploy:activation": "wrangler deploy --config wrangler.activation.jsonc",
-    "deploy:activation:staging": "wrangler deploy --config wrangler.activation.staging.jsonc",
     "test:activation": "vitest run --config vitest.activation.config.ts",
     "test:activation:watch": "vitest --config vitest.activation.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:all": "bun run test && bun run test:activation",
+    "db:generate": "drizzle-kit generate",
     "db:generate:activation": "drizzle-kit generate --config drizzle-activation.config.ts",
-    "db:migrate:activation:local": "wrangler d1 migrations apply trackdub_activation --local --config wrangler.activation.jsonc",
-    "db:migrate:activation:remote": "wrangler d1 migrations apply trackdub_activation --remote --config wrangler.activation.jsonc",
-    "db:migrate:activation:staging:remote": "wrangler d1 migrations apply trackdub_activation_staging --remote --config wrangler.activation.staging.jsonc",
-    "test:all": "bun run test && bun run test:activation"
+    "db:migrate": "SERVICE=api bun run server/migrate.ts",
+    "db:migrate:activation": "SERVICE=activation bun run server/migrate.ts",
+    "dev:docs-rag": "wrangler dev --config wrangler.docs-rag.jsonc",
+    "deploy:docs-rag": "wrangler deploy --config wrangler.docs-rag.jsonc",
+    "cf-typegen": "wrangler types",
+    "legacy:dev": "wrangler dev",
+    "legacy:deploy": "wrangler deploy",
+    "legacy:dev:activation": "wrangler dev --config wrangler.activation.jsonc",
+    "legacy:deploy:activation": "wrangler deploy --config wrangler.activation.jsonc",
+    "legacy:deploy:activation:staging": "wrangler deploy --config wrangler.activation.staging.jsonc",
+    "legacy:db:migrate:local": "wrangler d1 migrations apply trackdub_api --local",
+    "legacy:db:migrate:remote": "wrangler d1 migrations apply trackdub_api --remote",
+    "legacy:db:migrate:activation:local": "wrangler d1 migrations apply trackdub_activation --local --config wrangler.activation.jsonc",
+    "legacy:db:migrate:activation:remote": "wrangler d1 migrations apply trackdub_activation --remote --config wrangler.activation.jsonc",
+    "legacy:db:migrate:activation:staging:remote": "wrangler d1 migrations apply trackdub_activation_staging --remote --config wrangler.activation.staging.jsonc"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1154.0",
     "@cloudflare/workerd-linux-64": "^1.20260731.1",
     "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/sdk": "1.30.0",
@@ -37,14 +43,15 @@
     "better-auth": "1.6.25",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.8",
+    "postgres": "^3.4.9",
     "present": "^1.0.0",
     "scripts": "^0.1.0",
-
     "zod": "^3.25.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "5.20260922.1",
+    "@electric-sql/pglite": "^0.5.10",
+    "@types/node": "^26.6.5",
     "drizzle-kit": "^0.31.10",
     "typescript": "^7.0.0",
     "vitest": "^4.1.11",
@@ -62,6 +69,5 @@
     "@modelcontextprotocol/sdk": {
       "zod": "3.25.76"
     }
-
   }
 }

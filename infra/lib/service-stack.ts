@@ -113,6 +113,7 @@ export class ServiceStack extends Stack {
           SERVICE: opts.name,
           PORT: String(CONTAINER_PORT),
           APP_ENV: config.name,
+          GIT_SHA: imageTag,
           DATABASE_HOST: data.database.dbInstanceEndpointAddress,
           DATABASE_PORT: data.database.dbInstanceEndpointPort,
           ...opts.environment,

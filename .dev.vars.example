@@ -1,11 +1,47 @@
-# Local development secrets for `wrangler dev`.
-# Copy to `.dev.vars` (git-ignored) and fill in real values.
-# For deployed environments, set these with `wrangler secret put <NAME>`.
+# Local development configuration for `bun run dev` (server/main.ts).
+# Copy to `.env` (git-ignored), fill in real values, and export or load it.
+# In AWS these come from the task definition (public values) and Secrets Manager.
 
+# --- Which app to run: api (default) or activation ---
+SERVICE=api
+PORT=8080
+
+# --- Public configuration ---
+APP_ENV=development
+PORTAL_ORIGIN=http://localhost:5173
+
+# --- Database (docker compose up -d provides this) ---
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_NAME=trackdub_api
+DATABASE_USER=postgres
+DATABASE_PASSWORD=postgres
+# Local PostgreSQL has no TLS; RDS requires it, so the default is `require`.
+DATABASE_SSL=disable
+
+# --- Object storage (api only) ---
+# Real S3 uses the ambient AWS credentials; for local MinIO also set
+# AWS_ENDPOINT_URL_S3=http://localhost:9000, AWS_ACCESS_KEY_ID=minio,
+# AWS_SECRET_ACCESS_KEY=minio12345 and create the bucket first.
+MEDIA_BUCKET=trackdub-media-dev
+AWS_REGION=us-east-1
+
+# --- Secrets ---
 # Better Auth server secret — used to sign/encrypt session tokens.
 # Generate one: `openssl rand -base64 32`
-BETTER_AUTH_SECRET="replace-with-a-32-byte-random-secret"
+BETTER_AUTH_SECRET=
 
 # Shared secret guarding the internal invite/create-user endpoint.
 # Generate one: `openssl rand -base64 32`
-ADMIN_API_TOKEN="replace-with-a-random-admin-token"
+ADMIN_API_TOKEN=
+
+# Optional — password-reset email via Resend. When absent, reset mail is
+# logged (non-production) instead of sent.
+# RESEND_API_KEY=
+
+# --- Activation service only (SERVICE=activation, DATABASE_NAME=trackdub_activation) ---
+# ACTIVATION_ISSUER=http://localhost:8080
+# ACTIVATION_AUDIENCE=trackdub-license-dev
+# SIGNING_KEY_ID=dev-key
+# SIGNING_KEY=<ECC P-256 private key, PKCS#8 PEM>
+# ALLOW_DEV_LICENSES=true

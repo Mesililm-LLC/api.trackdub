@@ -1,0 +1,40 @@
+# Local development dependencies: PostgreSQL and an S3-compatible object store.
+#
+#   docker compose up -d
+#   cp .dev.vars.example .env        # then load it, or export the variables
+#   SERVICE=api DATABASE_NAME=trackdub_api bun run db:migrate
+#   bun run dev
+#
+# Nothing here is used in AWS; it only stands in for RDS and S3.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: trackdub_api
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/local-init.sql:/docker-entrypoint-initdb.d/local-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
+volumes:
+  pgdata:
+  miniodata:

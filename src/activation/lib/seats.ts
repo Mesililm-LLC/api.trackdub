@@ -1,16 +1,23 @@
 /**
  * Seat (machine-activation) accounting.
  *
- * Ported verbatim — SQL and control flow unchanged — from the archived
- * monorepo activation service (`services/activation-service/src/index.ts` in
- * Trackdub-Monorepo-Archive). That service was reviewed but never deployed;
- * the SQL here is nonetheless load-bearing concurrency correctness, not
- * incidental style, so it is not rewritten through an ORM. Each conditional
- * INSERT/UPDATE carries its seat-count predicate in the same statement as the
- * write, so two concurrent requests racing for the last seat cannot both
- * succeed — D1/SQLite serializes the write and only one predicate evaluates
- * true.
+ * Adapted from the archived monorepo activation service
+ * (`services/activation-service/src/index.ts` in Trackdub-Monorepo-Archive).
+ * The SQL is load-bearing concurrency correctness, not incidental style, so it
+ * is not rewritten through an ORM.
+ *
+ * Concurrency model (PostgreSQL). The original ran on SQLite, where writes are
+ * globally serialized, so a seat-count predicate inside a single INSERT/UPDATE
+ * was enough: two requests racing for the last seat could not both succeed.
+ * PostgreSQL does not serialize writers that way: under READ COMMITTED, two
+ * concurrent `INSERT ... WHERE (SELECT COUNT(*) ...) < max` statements can both
+ * observe the same count and both insert. Every seat change for a license
+ * therefore runs in a transaction that first takes a row lock on the license
+ * (`SELECT ... FOR UPDATE`), which serializes all activations for that license.
+ * The count predicates stay in the statements as a second line of defense.
  */
+
+import type { SqlDatabase } from "@/platform/sql";
 
 export type LicenseRow = {
   id: string;
@@ -19,8 +26,13 @@ export type LicenseRow = {
   max_machines: number;
 };
 
+/** Serialize seat changes for one license until the surrounding transaction ends. */
+async function lockLicense(tx: SqlDatabase, licenseId: string): Promise<void> {
+  await tx.prepare("SELECT id FROM licenses WHERE id = ? FOR UPDATE").bind(licenseId).first();
+}
+
 export async function getActiveMachineFingerprints(
-  db: D1Database,
+  db: SqlDatabase,
   licenseId: string,
 ): Promise<string[]> {
   const result = await db
@@ -28,22 +40,23 @@ export async function getActiveMachineFingerprints(
     .bind(licenseId, "active")
     .all<{ fingerprint_hash: string }>();
 
-  return (result.results ?? []).map((a) => `sha256:${a.fingerprint_hash}`);
+  return result.results.map((a) => `sha256:${a.fingerprint_hash}`);
 }
 
 export type EnsureActivationResult = "existing" | "inserted" | "max_reached";
 
 /**
- * Atomically register a fingerprint when seats remain. Reuses a released row
- * for the same fingerprint instead of hitting the UNIQUE constraint.
+ * Register a fingerprint when seats remain. Reuses a released row for the same
+ * fingerprint instead of hitting the UNIQUE constraint. Caller must hold the
+ * license lock (see {@link ensureActiveActivation}).
  */
-export async function ensureActiveActivation(
-  db: D1Database,
+async function claimSeat(
+  tx: SqlDatabase,
   license: LicenseRow,
   fingerprint: string,
   generateId: () => string,
 ): Promise<EnsureActivationResult> {
-  const existingRow = await db
+  const existingRow = await tx
     .prepare("SELECT id, status FROM activations WHERE license_id = ? AND fingerprint_hash = ?")
     .bind(license.id, fingerprint)
     .first<{ id: string; status: string }>();
@@ -55,43 +68,31 @@ export async function ensureActiveActivation(
   const activatedAt = new Date().toISOString();
 
   if (existingRow?.status === "released") {
-    const reviveResult = await db
+    const reviveResult = await tx
       .prepare(
         `UPDATE activations
-         SET status = 'active', activated_at = ?, released_at = NULL
+         SET status = 'active', activated_at = ?::timestamptz, released_at = NULL
          WHERE id = ?
            AND status = 'released'
-           AND (SELECT COUNT(*) FROM activations WHERE license_id = ? AND status = 'active') < ?`,
+           AND (SELECT COUNT(*) FROM activations WHERE license_id = ? AND status = 'active') < ?::int`,
       )
       .bind(activatedAt, existingRow.id, license.id, license.max_machines)
       .run();
 
-    if ((reviveResult.meta.changes ?? 0) > 0) {
-      return "inserted";
-    }
-
-    const racedActive = await db
-      .prepare(
-        "SELECT id FROM activations WHERE license_id = ? AND fingerprint_hash = ? AND status = ?",
-      )
-      .bind(license.id, fingerprint, "active")
-      .first<{ id: string }>();
-
-    return racedActive ? "existing" : "max_reached";
+    return reviveResult.meta.changes > 0 ? "inserted" : "max_reached";
   }
 
-  const activationId = generateId();
-  const insertResult = await db
+  const insertResult = await tx
     .prepare(
       `INSERT INTO activations (id, license_id, fingerprint_hash, status, activated_at)
-       SELECT ?, ?, ?, 'active', ?
-       WHERE (SELECT COUNT(*) FROM activations WHERE license_id = ? AND status = 'active') < ?
+       SELECT ?::text, ?::text, ?::text, 'active', ?::timestamptz
+       WHERE (SELECT COUNT(*) FROM activations WHERE license_id = ? AND status = 'active') < ?::int
          AND NOT EXISTS (
            SELECT 1 FROM activations WHERE license_id = ? AND fingerprint_hash = ?
          )`,
     )
     .bind(
-      activationId,
+      generateId(),
       license.id,
       fingerprint,
       activatedAt,
@@ -102,16 +103,23 @@ export async function ensureActiveActivation(
     )
     .run();
 
-  if ((insertResult.meta.changes ?? 0) > 0) {
-    return "inserted";
-  }
+  return insertResult.meta.changes > 0 ? "inserted" : "max_reached";
+}
 
-  const racedActivation = await db
-    .prepare("SELECT id FROM activations WHERE license_id = ? AND fingerprint_hash = ? AND status = ?")
-    .bind(license.id, fingerprint, "active")
-    .first<{ id: string }>();
-
-  return racedActivation ? "existing" : "max_reached";
+/**
+ * Atomically register a fingerprint when seats remain. Serialized per license,
+ * so two requests racing for the last seat cannot both succeed.
+ */
+export async function ensureActiveActivation(
+  db: SqlDatabase,
+  license: LicenseRow,
+  fingerprint: string,
+  generateId: () => string,
+): Promise<EnsureActivationResult> {
+  return db.transaction(async (tx) => {
+    await lockLicense(tx, license.id);
+    return claimSeat(tx, license, fingerprint, generateId);
+  });
 }
 
 export type ReplaceSeatResult = "replaced" | "old_gone" | "max_reached";
@@ -124,58 +132,54 @@ export type ReplaceSeatResult = "replaced" | "old_gone" | "max_reached";
  * route through {@link ensureActiveActivation}'s max_machines check the way
  * {@link replaceActivationSeat} does.
  */
-export async function releaseActivation(db: D1Database, activationId: string): Promise<boolean> {
+export async function releaseActivation(db: SqlDatabase, activationId: string): Promise<boolean> {
   const releasedAt = new Date().toISOString();
   const releaseResult = await db
-    .prepare("UPDATE activations SET status = ?, released_at = ? WHERE id = ? AND status = ?")
+    .prepare("UPDATE activations SET status = ?, released_at = ?::timestamptz WHERE id = ? AND status = ?")
     .bind("released", releasedAt, activationId, "active")
     .run();
-  return (releaseResult.meta.changes ?? 0) > 0;
+  return releaseResult.meta.changes > 0;
 }
 
 /**
- * Replacement seat claim for /reactivate. Uses the same max_machines
- * predicate as ensureActiveActivation so a concurrent /activate that fills
- * the freed seat cannot leave activations above max_machines.
+ * Replacement seat claim for /reactivate. Release and claim happen in one
+ * transaction under the license lock, so a concurrent /activate cannot take the
+ * freed seat between the two steps and leave activations above max_machines.
  */
 export async function replaceActivationSeat(
-  db: D1Database,
+  db: SqlDatabase,
   license: LicenseRow,
   oldActivationId: string,
   newFingerprint: string,
   generateId: () => string,
 ): Promise<ReplaceSeatResult> {
-  if (!(await releaseActivation(db, oldActivationId))) {
-    return "old_gone";
-  }
+  return db.transaction(async (tx) => {
+    await lockLicense(tx, license.id);
 
-  const claim = await ensureActiveActivation(db, license, newFingerprint, generateId);
-  if (claim === "max_reached") {
-    // Concurrent /activate took the freed seat — restore the old fingerprint.
-    // This restore must carry the same max_machines predicate as every other
-    // seat claim in this file: without it, a second concurrent /activate that
-    // filled the freed seat AFTER the release but BEFORE this restore runs
-    // would leave max_machines + 1 active (e.g. max=2, {A,B} active,
-    // reactivate A->D releases A leaving {B}, a concurrent activate for C
-    // fills it to {B,C}, D's claim above correctly fails at cap — but an
-    // unconditional restore of A here would still push it to {A,B,C}=3). If
-    // the cap is still full when this runs, A stays released rather than
-    // pushing the count over max_machines; the caller still gets
-    // max_activations either way, since D never got a seat regardless.
-    await db
-      .prepare(
-        `UPDATE activations
-         SET status = 'active', activated_at = ?, released_at = NULL
-         WHERE id = ?
-           AND status = 'released'
-           AND (SELECT COUNT(*) FROM activations WHERE license_id = ? AND status = 'active') < ?`,
-      )
-      .bind(new Date().toISOString(), oldActivationId, license.id, license.max_machines)
-      .run();
-    return "max_reached";
-  }
+    if (!(await releaseActivation(tx, oldActivationId))) {
+      return "old_gone";
+    }
 
-  return "replaced";
+    const claim = await claimSeat(tx, license, newFingerprint, generateId);
+    if (claim === "max_reached") {
+      // The cap is full even after freeing the old seat. Put the old
+      // fingerprint back (same max_machines predicate as every other claim)
+      // so the caller's failed swap leaves the license as it found it.
+      await tx
+        .prepare(
+          `UPDATE activations
+           SET status = 'active', activated_at = ?::timestamptz, released_at = NULL
+           WHERE id = ?
+             AND status = 'released'
+             AND (SELECT COUNT(*) FROM activations WHERE license_id = ? AND status = 'active') < ?::int`,
+        )
+        .bind(new Date().toISOString(), oldActivationId, license.id, license.max_machines)
+        .run();
+      return "max_reached";
+    }
+
+    return "replaced";
+  });
 }
 
 /**
@@ -184,7 +188,7 @@ export async function replaceActivationSeat(
  * production — see src/activation/config.ts.
  */
 export async function upsertActiveActivationUnlimited(
-  db: D1Database,
+  db: SqlDatabase,
   licenseId: string,
   fingerprint: string,
   generateId: () => string,
@@ -202,27 +206,26 @@ export async function upsertActiveActivationUnlimited(
 
   if (existing?.status === "released") {
     await db
-      .prepare("UPDATE activations SET status = ?, activated_at = ?, released_at = NULL WHERE id = ?")
+      .prepare(
+        "UPDATE activations SET status = ?, activated_at = ?::timestamptz, released_at = NULL WHERE id = ?",
+      )
       .bind("active", activatedAt, existing.id)
       .run();
     return;
   }
 
-  // Guarded with NOT EXISTS rather than a plain INSERT: without it, two
-  // concurrent requests for the same never-before-seen fingerprint can both
-  // observe no row above and both attempt the INSERT — the second hits the
-  // UNIQUE(license_id, fingerprint_hash) constraint and throws, surfacing as
-  // an unhandled 500. A no-op here just means a concurrent request already
-  // created the active row this one wanted; there's no seat cap to enforce
-  // on this dev-unlimited-only path, so nothing further to do either way.
+  // ON CONFLICT DO NOTHING rather than a plain INSERT: two concurrent requests
+  // for the same never-before-seen fingerprint can both observe no row above
+  // and both attempt the INSERT. The loser would otherwise hit the
+  // UNIQUE(license_id, fingerprint_hash) constraint and surface as a 500. A
+  // no-op just means a concurrent request already created the active row this
+  // one wanted; there is no seat cap to enforce on this dev-unlimited path.
   await db
     .prepare(
       `INSERT INTO activations (id, license_id, fingerprint_hash, status, activated_at)
-       SELECT ?, ?, ?, 'active', ?
-       WHERE NOT EXISTS (
-         SELECT 1 FROM activations WHERE license_id = ? AND fingerprint_hash = ?
-       )`,
+       VALUES (?, ?, ?, 'active', ?::timestamptz)
+       ON CONFLICT (license_id, fingerprint_hash) DO NOTHING`,
     )
-    .bind(generateId(), licenseId, fingerprint, activatedAt, licenseId, fingerprint)
+    .bind(generateId(), licenseId, fingerprint, activatedAt)
     .run();
 }

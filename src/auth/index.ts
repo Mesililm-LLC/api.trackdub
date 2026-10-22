@@ -29,7 +29,7 @@ export function createAuth(env: Bindings) {
 
   const options: BetterAuthOptions = {
     secret: config.secrets.BETTER_AUTH_SECRET,
-    database: drizzleAdapter(db, { provider: "sqlite", schema }),
+    database: drizzleAdapter(db, { provider: "pg", schema }),
     // No baseURL: derive origin from headers so cookies stay host-only.
     trustedOrigins: config.allowedOrigins,
     emailAndPassword: {

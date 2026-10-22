@@ -13,7 +13,7 @@ const bindings = env as unknown as Bindings;
 /**
  * Synthetic app still covers requireAuth in isolation. Production routes under
  * `/api/dubs*` also mount it; these cases keep the middleware contract clear
- * without depending on D1/R2 job fixtures.
+ * without depending on database/object-store job fixtures.
  */
 function protectedTestApp() {
   const test = new Hono<AppEnv>();

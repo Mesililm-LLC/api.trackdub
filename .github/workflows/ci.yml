@@ -25,6 +25,36 @@ jobs:
       - name: Run all tests
         run: bun run test:all
 
+  integration:
+    name: Postgres integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: trackdub_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - run: bun install --frozen-lockfile
+
+      - name: Seat accounting under concurrency (real PostgreSQL)
+        run: bun run test:integration
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/trackdub_test?sslmode=disable
+
   infra:
     name: Infra synth & container build
     runs-on: ubuntu-latest

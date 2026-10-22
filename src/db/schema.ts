@@ -1,28 +1,30 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, boolean, timestamp, index } from "drizzle-orm/pg-core";
 
 /**
- * Better Auth core schema (Drizzle / SQLite for D1) plus application tables.
+ * Better Auth core schema (Drizzle / PostgreSQL) plus application tables.
  *
  * Auth column names follow Better Auth so the Drizzle adapter maps cleanly.
- * Timestamps are integer epoch-millis (`{ mode: "timestamp_ms" }`).
+ * Timestamps are `timestamptz`, surfaced to the app as `Date`.
  */
 
-export const user = sqliteTable("user", {
+const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
+
+export const user = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
-  emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
+  emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: ts("created_at").notNull(),
+  updatedAt: ts("updated_at").notNull(),
 });
 
-export const session = sqliteTable("session", {
+export const session = pgTable("session", {
   id: text("id").primaryKey(),
-  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  expiresAt: ts("expires_at").notNull(),
   token: text("token").notNull().unique(),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: ts("created_at").notNull(),
+  updatedAt: ts("updated_at").notNull(),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
   userId: text("user_id")
@@ -30,7 +32,7 @@ export const session = sqliteTable("session", {
     .references(() => user.id, { onDelete: "cascade" }),
 });
 
-export const account = sqliteTable("account", {
+export const account = pgTable("account", {
   id: text("id").primaryKey(),
   accountId: text("account_id").notNull(),
   providerId: text("provider_id").notNull(),
@@ -40,21 +42,21 @@ export const account = sqliteTable("account", {
   accessToken: text("access_token"),
   refreshToken: text("refresh_token"),
   idToken: text("id_token"),
-  accessTokenExpiresAt: integer("access_token_expires_at", { mode: "timestamp_ms" }),
-  refreshTokenExpiresAt: integer("refresh_token_expires_at", { mode: "timestamp_ms" }),
+  accessTokenExpiresAt: ts("access_token_expires_at"),
+  refreshTokenExpiresAt: ts("refresh_token_expires_at"),
   scope: text("scope"),
   password: text("password"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: ts("created_at").notNull(),
+  updatedAt: ts("updated_at").notNull(),
 });
 
-export const verification = sqliteTable("verification", {
+export const verification = pgTable("verification", {
   id: text("id").primaryKey(),
   identifier: text("identifier").notNull(),
   value: text("value").notNull(),
-  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  expiresAt: ts("expires_at").notNull(),
+  createdAt: ts("created_at").notNull(),
+  updatedAt: ts("updated_at").notNull(),
 });
 
 /**
@@ -62,7 +64,7 @@ export const verification = sqliteTable("verification", {
  * Processing is deferred: scaffold creates Queued rows; a later worker marks
  * Running/Completed and writes `output_media_path`. Do not fake completion.
  */
-export const dubJobs = sqliteTable(
+export const dubJobs = pgTable(
   "dub_jobs",
   {
     id: text("id").primaryKey(),
@@ -79,9 +81,9 @@ export const dubJobs = sqliteTable(
     currentStage: text("current_stage"),
     errorMessage: text("error_message"),
     durationSeconds: integer("duration_seconds"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+    completedAt: ts("completed_at"),
   },
   (table) => [
     index("dub_jobs_user_id_idx").on(table.userId),

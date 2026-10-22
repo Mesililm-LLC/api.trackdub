@@ -12,18 +12,18 @@ describe("health endpoints", () => {
     expect(await res.json()).toEqual({ status: "ok" });
   });
 
-  it("GET /api/health/ready returns 200 when D1 is reachable", async () => {
+  it("GET /api/health/ready returns 200 when the database is reachable", async () => {
     const res = await app.request("/api/health/ready", {}, bindings);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ status: "ready" });
   });
 
-  it("GET /api/health/ready returns 503 when D1 is unreachable", async () => {
+  it("GET /api/health/ready returns 503 when the database is unreachable", async () => {
     const broken = {
       ...bindings,
       DB: {
         prepare: () => {
-          throw new Error("d1 down");
+          throw new Error("database down");
         },
       } as unknown as Bindings["DB"],
     };
@@ -35,12 +35,12 @@ describe("health endpoints", () => {
     });
   });
 
-  it("GET /api/health returns degraded with empty pipelines when D1 is unreachable", async () => {
+  it("GET /api/health returns degraded with empty pipelines when the database is unreachable", async () => {
     const broken = {
       ...bindings,
       DB: {
         prepare: () => {
-          throw new Error("d1 down");
+          throw new Error("database down");
         },
       } as unknown as Bindings["DB"],
     };
@@ -75,7 +75,7 @@ describe("health endpoints", () => {
       ...bindings,
       DB: {
         prepare: (sql: string) => {
-          if (sql.includes("sqlite_master") && sql.includes("dub_jobs")) {
+          if (sql.includes("to_regclass") && sql.includes("dub_jobs")) {
             return {
               first: async () => null,
             };
@@ -102,7 +102,7 @@ describe("health endpoints", () => {
       DUB_PROCESSOR_ENABLED: "true",
       DB: {
         prepare: (sql: string) => {
-          if (sql.includes("sqlite_master") && sql.includes("dub_jobs")) {
+          if (sql.includes("to_regclass") && sql.includes("dub_jobs")) {
             return { first: async () => null };
           }
           if (sql.trim() === "SELECT 1") {

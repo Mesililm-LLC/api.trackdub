@@ -40,7 +40,7 @@ These are intentionally not automated. Do them in order:
    docker push <ecr-uri>:<sha>
    ```
 3. **Set the secrets that cannot be generated** (overwrite the generated placeholders with `aws secretsmanager put-secret-value`):
-   - `BETTER_AUTH_SECRET` (production): must equal the current Cloudflare value or every session is invalidated at cutover.
+   - `BETTER_AUTH_SECRET` (production): the generated value is fine today, because the Cloudflare portal database has no users or sessions (checked 2026-10-21). If users exist by cutover and you import their sessions, it must equal the Cloudflare value or every session is invalidated.
    - Activation `SIGNING_KEY`: the existing ECC P-256 PKCS#8 PEM. Never regenerate; it must match the trust ring baked into desktop builds.
    - `RESEND_API_KEY`: optional; leave unset and password-reset mail is logged only.
 4. **Bootstrap the databases** (once per environment). The RDS instance sits in an isolated subnet, so run this from somewhere that can reach it (an SSM port-forward through a bastion, or a one-off task in the VPC). It creates `trackdub_api_app` / `trackdub_activation_app`, each owning its own database and unable to connect to the other:
@@ -56,7 +56,7 @@ These are intentionally not automated. Do them in order:
 
 ## Known gaps
 
-- **Data is not migrated yet.** The code and schema are ported (PostgreSQL migrations in `migrations/`), but existing Cloudflare D1 and R2 data still has to be exported and loaded. Timestamps change type: D1 stored epoch milliseconds (portal) and ISO text (activation); PostgreSQL uses `timestamptz`, so convert on import (`to_timestamp(ms / 1000.0)`). See [docs/plans/aws-migration.md](../docs/plans/aws-migration.md).
+- **Data is not migrated yet, but the tooling is ready.** Cloudflare holds only activation data (prod: 4 licenses / 4 activations; staging: 6 / 5); the portal database is empty. `bun run d1:export` / `d1:import` move it with verification (rehearsed against real data). The real import waits for a deployed database. See [docs/plans/aws-migration.md](../docs/plans/aws-migration.md).
 - **Database TLS does not verify the CA.** `DATABASE_SSL` defaults to `require` (encrypted, no certificate check). Pin the RDS CA bundle as a hardening step.
 - **Migrations are a manual one-off task**, not a CDK-managed step. Wire it into the deploy pipeline once there is one.
 - **Staging API host is an assumption.** `api.trackdub.dev` is used because `activate.trackdub.dev` is the existing staging activation host; confirm before deploying staging.

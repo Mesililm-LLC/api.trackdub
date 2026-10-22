@@ -122,6 +122,26 @@ curl https://api.trackdub.com/api/health/ready   # 200 { status: "ready" }, or 5
 curl https://api.trackdub.com/api/version        # 200, build = BUILD_ID, commit = GIT_SHA ("unknown" when unset)
 ```
 
+## Moving data from Cloudflare D1
+
+One-time tooling for the cutover (see [docs/plans/aws-migration.md](docs/plans/aws-migration.md)):
+
+```bash
+# 1. read-only export of a D1 database to JSON (keep the folder outside the repo)
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... bun run d1:export activation ../d1-export
+
+# 2. rehearse against the target database: loads, verifies, rolls back
+DATABASE_HOST=... DATABASE_NAME=trackdub_activation DATABASE_USER=... DATABASE_PASSWORD=... \
+  bun run d1:import activation ../d1-export --dry-run
+
+# 3. the real import (one transaction; commits only if every table verifies)
+... bun run d1:import activation ../d1-export
+```
+
+Sources are `portal`, `activation` and `activation-staging`. The import refuses a
+non-empty target or the wrong `DATABASE_NAME`. The exported files hold personal
+data and credential material; delete them when done.
+
 ## Bootstrap the first user
 
 Registration is invite-only, so seed the first operator with the admin token.

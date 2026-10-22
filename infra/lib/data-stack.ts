@@ -109,12 +109,13 @@ export class DataStack extends Stack {
     this.apiDbCredentials = dbRole("ApiDbCredentials", "trackdub_api_app");
     this.activationDbCredentials = dbRole("ActivationDbCredentials", "trackdub_activation_app");
 
-    // BETTER_AUTH_SECRET must equal the value currently on Cloudflare in
-    // production, or every existing session is invalidated at cutover. The
-    // generated value is a placeholder: overwrite it with put-secret-value
-    // before the first production deploy (see infra/README.md).
+    // BETTER_AUTH_SECRET signs sessions. The Cloudflare portal database has no
+    // users or sessions today (checked 2026-10-21), so a generated value is
+    // fine. If sessions are imported at cutover it must equal the Cloudflare
+    // value, otherwise every imported session is invalidated; overwrite it with
+    // put-secret-value before then (see infra/README.md).
     this.betterAuthSecret = new secretsmanager.Secret(this, "BetterAuthSecret", {
-      description: `BETTER_AUTH_SECRET (${config.name}). Overwrite in production with the Cloudflare value.`,
+      description: `BETTER_AUTH_SECRET (${config.name}). Only needs the Cloudflare value if sessions are imported.`,
     });
     this.apiAdminToken = new secretsmanager.Secret(this, "ApiAdminToken", {
       description: `Portal API ADMIN_API_TOKEN (${config.name})`,

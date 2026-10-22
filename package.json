@@ -19,6 +19,8 @@
     "db:generate:activation": "drizzle-kit generate --config drizzle-activation.config.ts",
     "db:migrate": "SERVICE=api bun run server/migrate.ts",
     "db:migrate:activation": "SERVICE=activation bun run server/migrate.ts",
+    "d1:export": "bun run server/d1-migrate.ts export",
+    "d1:import": "bun run server/d1-migrate.ts import",
     "dev:docs-rag": "wrangler dev --config wrangler.docs-rag.jsonc",
     "deploy:docs-rag": "wrangler deploy --config wrangler.docs-rag.jsonc",
     "cf-typegen": "wrangler types",

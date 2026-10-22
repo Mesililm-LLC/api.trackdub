@@ -8,7 +8,7 @@ Built so far (branch `aws/fargate-scaffold`, nothing deployed):
 - **Application port, done and tested:** Drizzle moved from D1 (SQLite) to PostgreSQL (`migrations/portal`, `migrations/activation`); the raw activation SQL is ported with a per-license row lock so seat limits hold under concurrent requests; `MEDIA` moved from R2 to an S3-backed `ObjectStore`. Unit tests run on an in-process PostgreSQL (163 portal + 27 activation); a real-PostgreSQL concurrency suite (`bun run test:integration`) proves the lock (with it disabled, 25 of 25 racing requests got a seat on a 3-seat license).
 - A CDK app ([infra/](../../infra/README.md)) that synthesizes registry, network, data, and service stacks for staging and production.
 
-Still to do: the D1/R2 data export and import, the deploy itself, and the DNS cutover.
+Data export/import tooling is built and rehearsed against the real Cloudflare data (see Data migration). Still to do: the deploy itself and the DNS cutover.
 
 ## Current Cloudflare footprint
 
@@ -49,23 +49,39 @@ All of this is done on the branch except where marked.
 
 ## Data migration (D1 → Postgres)
 
-1. Export D1 with `wrangler d1 export` (SQL dump) for `trackdub_api` and both activation databases.
-2. Load into PostgreSQL **after** the schema exists (run `server/migrate.ts` first), not from the SQLite DDL. Transform on the way in:
-   - Portal tables store timestamps as epoch milliseconds: `to_timestamp(ms / 1000.0)`.
-   - Better Auth `email_verified` is `0/1` in SQLite: cast to boolean.
-   - Activation `created_at` / `activated_at` / `released_at` are ISO-8601 text: cast to `timestamptz`.
-3. Load into staging RDS first, then run the verification queries below.
-4. **Auth users and sessions:** Better Auth tables move with the data. Sessions stay valid only if `BETTER_AUTH_SECRET` is unchanged, so keep the existing secret.
-5. **Activation seats and licenses:** these must move exactly. A license that has an active seat on the old system must have the same seat on the new one, or the desktop app will show an unexpected activation limit.
-6. **Media objects:** copy the R2 bucket to S3 with the same keys (`rclone` works against both; R2 speaks the S3 API).
+Tooling is built and rehearsed: `server/d1-migrate.ts` (`bun run d1:export`, `bun run d1:import`). **What is actually in Cloudflare** (read-only check, 2026-10-21):
 
-Verification: row counts per table on both sides, a checksum of `licenses` and `activations`, and a sample of 20 license keys checked through `/status` before and after.
+| Database | Contents |
+| --- | --- |
+| Portal D1 (`trackdub_api`, prod) | **Empty**: 0 users, sessions, accounts, verifications. Only migration 0000 applied (no `dub_jobs` table), so the deployed Worker is also missing the dub job schema. |
+| Activation D1 (prod) | 4 licenses (3 active, 1 revoked), 4 activations (3 active, 1 released) |
+| Activation D1 (staging) | 6 licenses (4 active, 2 revoked), 5 activations (3 active, 2 released) |
+| R2 `trackdub-media` | Not listable with the available token. Almost certainly empty (no user exists to have uploaded, and uploads are disabled), but **unverified**; check before cutover. |
+
+So the only data that matters is the activation licenses and seats. The portal starts fresh: after cutover, re-seed the first operator with `POST /api/admin/invite` (README).
+
+**How it works**
+- `export <source> <dir>` reads a D1 database through Cloudflare's query API using only `SELECT`, with columns listed explicitly (a drifted schema fails loudly). Sources: `portal`, `activation`, `activation-staging`.
+- `import <source> <dir> [--dry-run]` loads the files into the PostgreSQL database named by `DATABASE_*` in **one transaction**, converts types, then reads every table back and compares row counts and an order-independent content digest with the source. It commits only if everything matches. It refuses a non-empty target, and refuses if `DATABASE_NAME` is not the database that source belongs in. `--dry-run` does all of it and rolls back.
+- Conversions: epoch milliseconds → `timestamptz`; SQLite `datetime('now')` text (UTC, no zone marker, used by `licenses.created_at`) is tagged as UTC rather than read as local time; ISO-8601 text → `timestamptz`; `0/1` → `boolean`.
+
+**Rehearsal result** (real Cloudflare data into a real local PostgreSQL, via the CLI): the prod activation export imported with all digests matching, and an independent field-by-field cross-check (key hash lookup, tier/status/seat cap, exact timestamp instants, active fingerprints per license) found 0 mismatches. Dry run left the target empty; a second import was refused. The exported files were deleted afterwards.
+
+**Cutover procedure**
+1. Run `bootstrap-db` and `migrate` on the target (infra/README.md), so the schema exists and is empty.
+2. Announce a short activation window, then export again (the data changes between rehearsal and cutover).
+3. `import ... --dry-run` against the real RDS database, then the real import. Use the Cloudflare account id `21cac5947e11018d571c18792118b8b0` and an API token with D1 read access.
+4. Spot-check a few real licenses through `POST /status` on the new service (the plaintext keys are not stored anywhere; use keys from the customer records you hold).
+5. Delete the exported files: they contain buyer emails and license key hashes (and, for the portal, password hashes and session tokens).
+6. Copy media only if the R2 bucket turns out to hold objects: `rclone sync` between R2 and S3 with the same keys.
+
+**Seats and tokens:** activations migrate as rows, so a license with an active seat on Cloudflare has the same seat on AWS. Tokens already on desktops stay valid as long as `SIGNING_KEY` / `SIGNING_KEY_ID` are unchanged.
 
 ## Cutover
 
 1. Stand up staging on AWS and run the full test suite against it.
 2. Freeze writes briefly on the Cloudflare side (or announce a window for activation, since desktop clients call it).
-3. Final D1 export → Postgres import. Verify.
+3. Final D1 export → Postgres import (`bun run d1:export` / `d1:import`, with a dry run first). Verify.
 4. Switch DNS for `activate.trackdub.com` first (the desktop clients depend on it), then `api.trackdub.com`.
 5. Keep the Cloudflare Workers deployed but unrouted for 2 weeks as a rollback path. Rollback = point DNS back.
 6. Decommission the Workers, D1 databases, and R2 bucket only after the rollback window.

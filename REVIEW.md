@@ -1,7 +1,7 @@
 # Review Guide
 
 Use this file when reviewing pull requests in the Trackdub API Worker
-(`trackdubllc/api.trackdub`).
+(`mesalimllc/api.trackdub`).
 
 This is a reviewer checklist, not an authoring guide. For stack and local
 commands, see `README.md`. For auth topology and request lifecycle, see

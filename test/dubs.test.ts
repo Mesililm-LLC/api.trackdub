@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env } from "./support/portal-env";
 import { describe, it, expect, beforeAll } from "vitest";
 import app from "@/index";
 import { createAuth } from "@/auth";

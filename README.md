@@ -1,16 +1,16 @@
 # trackdub-api
 
-**api.trackdub.com** — backend for the Trackdub portal, plus the desktop license
-activation service. Better Auth + PostgreSQL + Drizzle + Hono, running as a
-container on AWS (ECS Fargate). This repo owns authentication, authorization,
-and API routing. The portal (`portal.trackdub.com`) is a browser-only SPA that
-talks to this API with `credentials: "include"`; no backend logic lives in the
-portal.
+**api.trackdub.com** — backend for the Trackdub portal. Better Auth + PostgreSQL +
+Drizzle + Hono, running as a container on AWS (ECS Fargate). This repo owns
+authentication, authorization, and API routing. The portal (`portal.trackdub.com`)
+is a browser-only SPA that talks to this API with `credentials: "include"`; no
+backend logic lives in the portal.
 
-> **Hosting:** this branch targets **AWS** (see [docs/plans/aws-migration.md](docs/plans/aws-migration.md)
+> **Hosting:** the portal API targets **AWS** (see [docs/plans/aws-migration.md](docs/plans/aws-migration.md)
 > and [infra/README.md](infra/README.md)). The Cloudflare Workers deployment on
-> `main` stays live until cutover. The docs-RAG Worker (`src/docs-rag/`) stays on
-> Cloudflare.
+> `main` stays live until cutover. **License activation** (`src/activation/`,
+> `activate.trackdub.com`) and the **docs-RAG** Worker (`src/docs-rag/`) stay on
+> Cloudflare and are not part of the container.
 
 > **Scope:** Auth, health, version, languages, admin invite, and the **dubs job
 > scaffold** (`/api/dubs*`: upload to object storage, create/list/get/cancel
@@ -19,22 +19,18 @@ portal.
 
 ## Stack
 
-- **Hono** app (`src/index.ts` portal API, `src/activation/index.ts` activation), served from `server/main.ts`
+- **Hono** app (`src/index.ts`), served from `server/main.ts`
 - **Better Auth** — email/password, invite-only, host-only session cookies
-- **PostgreSQL** (RDS in AWS) via **Drizzle ORM** + Drizzle Kit migrations; hand-written SQL for activation seat accounting
+- **PostgreSQL** (RDS in AWS) via **Drizzle ORM** + Drizzle Kit migrations
 - **S3** — media uploads for `/api/dubs/upload`
 - **Zod** for config + request validation
-- **Vitest** — unit tests run in Node against an in-process PostgreSQL ([PGlite](https://pglite.dev)); concurrency tests run against a real PostgreSQL
-
-One container image serves both services; `SERVICE=api` (default) or
-`SERVICE=activation` selects which app runs.
+- **Vitest** — portal tests run in Node against an in-process PostgreSQL ([PGlite](https://pglite.dev)); the activation Worker's tests still run in workerd
 
 ## Layout
 
 ```
 src/
   index.ts          Portal API app: middleware chain + route mounting
-  activation/       License activation app (own routes, schema, seat accounting)
   config/env.ts     Fail-fast config validation (secrets / public / bindings)
   auth/             Better Auth factory + invite provisioning
   db/               Drizzle client type + Better Auth / dub job schema
@@ -42,12 +38,14 @@ src/
   middleware/       request-id, logging, error, auth, authorize, validate
   routes/           health, version, languages, admin (invite), dubs
   lib/              logger, errors, crypto, static languages
-  docs-rag/         Cloudflare Worker (docs search MCP) — not part of the container
-server/             Container runtime: entrypoint, postgres.js + S3 drivers, migrate
-migrations/         Generated PostgreSQL migrations (portal/, activation/)
+  activation/       License activation Worker (Cloudflare, D1) — not part of the container
+  docs-rag/         Docs search MCP Worker (Cloudflare) — not part of the container
+server/             Container runtime: entrypoint, postgres.js + S3 drivers, migrate, bootstrap
+migrations/portal/  Generated PostgreSQL migrations
 infra/              AWS CDK app (see infra/README.md)
-drizzle/            Legacy Cloudflare D1 (SQLite) migrations, kept for the data export
-test/               Unit tests (PGlite); test/integration needs a real PostgreSQL
+drizzle/            Legacy portal D1 (SQLite) migrations
+drizzle-activation/ Activation Worker D1 migrations (live)
+test/               Portal tests (PGlite); test/activation runs in workerd
 docs/               ARCHITECTURE.md, CONTRACT-MISMATCHES.md, ACTIVATION-CONTRACT.md, plans/
 ```
 
@@ -59,11 +57,10 @@ values come from the ECS task definition and secrets from Secrets Manager
 
 | Name                              | Kind    | Notes |
 | --------------------------------- | ------- | ----- |
-| `SERVICE`                         | public  | `api` (default) or `activation`. |
 | `APP_ENV`                         | public  | `development` \| `staging` \| `production` |
 | `PORTAL_ORIGIN`                   | public  | Exact portal origin, e.g. `https://portal.trackdub.com`. Drives CORS + trustedOrigins. |
 | `DATABASE_HOST/PORT/NAME/USER/PASSWORD` | public / secret | PostgreSQL connection. `DATABASE_SSL=disable` for local development only. |
-| `MEDIA_BUCKET`, `AWS_REGION`      | public  | S3 bucket for uploads (api only). Credentials come from the task role. |
+| `MEDIA_BUCKET`, `AWS_REGION`      | public  | S3 bucket for uploads. Credentials come from the task role. |
 | `BETTER_AUTH_SECRET`              | secret  | ≥16 chars. `openssl rand -base64 32`. Signs sessions. |
 | `ADMIN_API_TOKEN`                 | secret  | ≥16 chars. Guards the invite endpoint. |
 | `GIT_SHA`, `BUILD_ID`             | public  | Reported by `GET /api/version`. |
@@ -82,35 +79,39 @@ cp .dev.vars.example .env            # bun loads .env automatically; fill in sec
 bun run db:migrate                   # apply migrations/portal
 bun run dev                          # server/main.ts with --watch
 bun run typecheck                    # tsc --noEmit
-bun run test:all                     # portal + activation suites (PGlite, no database needed)
-TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres bun run test:integration
+bun run test:all                     # portal (PGlite) + activation (workerd) suites; no database needed
 ```
 
-After changing `src/db/schema.ts` or `src/activation/schema.ts`, regenerate
-migrations with `bun run db:generate` / `bun run db:generate:activation` and
-commit the new files under `migrations/`.
+After changing `src/db/schema.ts`, regenerate migrations with
+`bun run db:generate` and commit the new files under `migrations/portal/`.
 
-The old Cloudflare Worker scripts are kept as `legacy:*` (for example
+The old portal Worker scripts are kept as `legacy:*` (for example
 `legacy:deploy`) until cutover is complete. They no longer work from this branch:
-the code now expects PostgreSQL and S3 bindings, not D1 and R2.
+the portal code now expects PostgreSQL and S3 bindings, not D1 and R2.
+
+### Activation Worker (stays on Cloudflare)
+
+`src/activation/` is unchanged by the AWS move. Its scripts are the same as on
+`main`: `bun run dev:activation`, `deploy:activation`, `deploy:activation:staging`,
+`db:migrate:activation:*`, and `db:generate:activation`. A PostgreSQL port of it
+(with the per-license row lock that PostgreSQL needs for seat limits) is preserved
+on the `aws/activation-postgres` branch in case it is ever moved.
 
 ## Run the container
 
 ```bash
 docker build -t trackdub-api .
-docker run --rm -p 8080:8080 --env-file .env trackdub-api         # SERVICE=api
-docker run --rm -e SERVICE=activation --env-file .env trackdub-api  # activation
+docker run --rm -p 8080:8080 --env-file .env trackdub-api
 ```
 
 `GET /healthz` is the liveness probe the load balancer uses (no dependencies).
 `GET /api/health/ready` checks the database. Run migrations as a one-off task
-with the same image: `bun run server/migrate.ts` (uses `SERVICE` to pick
-`migrations/portal` or `migrations/activation`).
+with the same image: `bun run server/migrate.ts` (applies `migrations/portal`).
 
 ## Deploy
 
 Deployment is described in [infra/README.md](infra/README.md): CDK stacks for
-the registry, network, data, and services; first-deploy steps for secrets,
+the registry, network, data, and service; first-deploy steps for secrets,
 database bootstrap, migrations, and DNS. Nothing is deployed from this branch yet.
 
 Verify after a deploy:
@@ -121,26 +122,6 @@ curl https://api.trackdub.com/api/health         # 200 { status: "healthy", ... 
 curl https://api.trackdub.com/api/health/ready   # 200 { status: "ready" }, or 503 { status: "unavailable", ... }
 curl https://api.trackdub.com/api/version        # 200, build = BUILD_ID, commit = GIT_SHA ("unknown" when unset)
 ```
-
-## Moving data from Cloudflare D1
-
-One-time tooling for the cutover (see [docs/plans/aws-migration.md](docs/plans/aws-migration.md)):
-
-```bash
-# 1. read-only export of a D1 database to JSON (keep the folder outside the repo)
-CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... bun run d1:export activation ../d1-export
-
-# 2. rehearse against the target database: loads, verifies, rolls back
-DATABASE_HOST=... DATABASE_NAME=trackdub_activation DATABASE_USER=... DATABASE_PASSWORD=... \
-  bun run d1:import activation ../d1-export --dry-run
-
-# 3. the real import (one transaction; commits only if every table verifies)
-... bun run d1:import activation ../d1-export
-```
-
-Sources are `portal`, `activation` and `activation-staging`. The import refuses a
-non-empty target or the wrong `DATABASE_NAME`. The exported files hold personal
-data and credential material; delete them when done.
 
 ## Bootstrap the first user
 

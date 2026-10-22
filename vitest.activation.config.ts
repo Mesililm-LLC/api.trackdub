@@ -1,28 +1,49 @@
+import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { TEST_SIGNING_KEY_PEM } from "./test/activation/test-keys";
 
 /**
- * Activation service tests. Run in Node against an in-process PostgreSQL
- * (PGlite), wired in through test/support/activation-env.ts and the
- * `cloudflare:test` alias (see vitest.config.ts for why the alias exists).
+ * Runs the activation Worker's tests inside the real workerd runtime, using
+ * bindings from wrangler.activation.jsonc. Separate from vitest.config.ts
+ * (the portal's) because the two Workers have entirely disjoint bindings and
+ * migrations dirs — see src/activation/types.ts.
  *
  * The signing keypair lives in test/activation/test-keys.ts, a plain module
- * shared by the environment and the tests that verify issued tokens.
+ * with no vite/vitest-pool-workers imports, so test files (which run inside
+ * workerd) can import the public half without pulling Node-only build
+ * tooling into the worker bundle.
  */
-export default defineConfig({
-  resolve: {
-    alias: {
-      "@": path.resolve(import.meta.dirname, "src"),
-      "cloudflare:test": path.resolve(import.meta.dirname, "test/support/activation-env.ts"),
+export default defineConfig(async () => {
+  const migrations = await readD1Migrations(path.join(__dirname, "drizzle-activation"));
+
+  return {
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "src"),
+      },
     },
-  },
-  test: {
-    environment: "node",
-    // Each test file boots its own in-process PostgreSQL (WASM); cap parallelism
-    // so memory-constrained machines do not run out of commit.
-    maxWorkers: 3,
-    globals: true,
-    include: ["test/activation/**/*.test.ts"],
-    setupFiles: ["./test/setup/activation.ts"],
-  },
+    plugins: [
+      cloudflareTest({
+        wrangler: { configPath: "./wrangler.activation.jsonc" },
+        miniflare: {
+          bindings: {
+            APP_ENV: "development",
+            ACTIVATION_ISSUER: "https://activate.trackdub.com",
+            ACTIVATION_AUDIENCE: "trackdub-license-prod",
+            SIGNING_KEY_ID: "test-key-2026",
+            SIGNING_KEY: TEST_SIGNING_KEY_PEM,
+            ADMIN_API_TOKEN: "test-admin-token-at-least-16-chars-long",
+            ALLOW_DEV_LICENSES: "true",
+            TEST_MIGRATIONS: migrations,
+          },
+        },
+      }),
+    ],
+    test: {
+      globals: true,
+      setupFiles: ["./test/activation/apply-migrations.ts"],
+      include: ["test/activation/**/*.test.ts"],
+    },
+  };
 });

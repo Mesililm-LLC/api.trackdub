@@ -13,28 +13,20 @@ export interface DataStackProps extends StackProps {
 
 /**
  * Stateful resources for one environment: PostgreSQL, the media bucket, the
- * application secrets, and the task security groups that are allowed to reach
- * the database. The task security groups live here (not in the service stack)
- * so the database rule and the service never form a cross-stack cycle.
- *
- * The portal API and the activation service share one RDS instance but use
- * separate databases and separate roles. The activation signing key is only
- * ever wired into the activation service's task definition.
+ * application secrets, and the security groups for the load balancer, the API
+ * tasks, and the database. The security groups live here (not in the service
+ * stack) so the rules between them never form a cross-stack cycle.
  */
 export class DataStack extends Stack {
   public readonly database: rds.DatabaseInstance;
   public readonly mediaBucket: s3.Bucket;
   public readonly albSecurityGroup: ec2.SecurityGroup;
   public readonly apiTaskSecurityGroup: ec2.SecurityGroup;
-  public readonly activationTaskSecurityGroup: ec2.SecurityGroup;
 
   public readonly apiDbCredentials: secretsmanager.Secret;
-  public readonly activationDbCredentials: secretsmanager.Secret;
   public readonly betterAuthSecret: secretsmanager.Secret;
   public readonly apiAdminToken: secretsmanager.Secret;
   public readonly resendApiKey: secretsmanager.Secret;
-  public readonly activationAdminToken: secretsmanager.Secret;
-  public readonly activationSigningKey: secretsmanager.Secret;
 
   constructor(scope: Construct, id: string, props: DataStackProps) {
     super(scope, id, props);
@@ -52,10 +44,6 @@ export class DataStack extends Stack {
       vpc,
       description: `${config.name} portal API tasks`,
     });
-    this.activationTaskSecurityGroup = new ec2.SecurityGroup(this, "ActivationTaskSg", {
-      vpc,
-      description: `${config.name} activation tasks`,
-    });
 
     const dbSecurityGroup = new ec2.SecurityGroup(this, "DbSg", {
       vpc,
@@ -63,7 +51,6 @@ export class DataStack extends Stack {
       allowAllOutbound: false,
     });
     dbSecurityGroup.addIngressRule(this.apiTaskSecurityGroup, ec2.Port.tcp(5432), "portal API");
-    dbSecurityGroup.addIngressRule(this.activationTaskSecurityGroup, ec2.Port.tcp(5432), "activation");
 
     this.database = new rds.DatabaseInstance(this, "Database", {
       engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16 }),
@@ -94,44 +81,30 @@ export class DataStack extends Stack {
       lifecycleRules: [{ abortIncompleteMultipartUploadAfter: Duration.days(7) }],
     });
 
-    // Application roles. The migration step creates these roles in PostgreSQL
-    // with the generated passwords; the tasks never see the admin credentials.
-    const dbRole = (name: string, username: string): secretsmanager.Secret =>
-      new secretsmanager.Secret(this, name, {
-        description: `PostgreSQL role ${username} (${config.name})`,
-        generateSecretString: {
-          secretStringTemplate: JSON.stringify({ username }),
-          generateStringKey: "password",
-          excludePunctuation: true,
-          passwordLength: 32,
-        },
-      });
-    this.apiDbCredentials = dbRole("ApiDbCredentials", "trackdub_api_app");
-    this.activationDbCredentials = dbRole("ActivationDbCredentials", "trackdub_activation_app");
+    // Application role. The bootstrap step (server/bootstrap-db.ts) creates the
+    // PostgreSQL role with this generated password; the tasks never see the
+    // admin credentials.
+    this.apiDbCredentials = new secretsmanager.Secret(this, "ApiDbCredentials", {
+      description: `PostgreSQL role trackdub_api_app (${config.name})`,
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ username: "trackdub_api_app" }),
+        generateStringKey: "password",
+        excludePunctuation: true,
+        passwordLength: 32,
+      },
+    });
 
     // BETTER_AUTH_SECRET signs sessions. The Cloudflare portal database has no
     // users or sessions today (checked 2026-10-21), so a generated value is
-    // fine. If sessions are imported at cutover it must equal the Cloudflare
-    // value, otherwise every imported session is invalidated; overwrite it with
-    // put-secret-value before then (see infra/README.md).
+    // fine.
     this.betterAuthSecret = new secretsmanager.Secret(this, "BetterAuthSecret", {
-      description: `BETTER_AUTH_SECRET (${config.name}). Only needs the Cloudflare value if sessions are imported.`,
+      description: `BETTER_AUTH_SECRET (${config.name})`,
     });
     this.apiAdminToken = new secretsmanager.Secret(this, "ApiAdminToken", {
       description: `Portal API ADMIN_API_TOKEN (${config.name})`,
     });
     this.resendApiKey = new secretsmanager.Secret(this, "ResendApiKey", {
       description: `RESEND_API_KEY for password-reset email (${config.name}). Set manually.`,
-    });
-    this.activationAdminToken = new secretsmanager.Secret(this, "ActivationAdminToken", {
-      description: `Activation ADMIN_API_TOKEN (${config.name}). Separate from the portal API token.`,
-    });
-    // SIGNING_KEY is an ECC P-256 private key (PKCS#8 PEM) and cannot be
-    // generated here: it must match the public key already in the desktop
-    // trust ring. The generated value is a placeholder that the activation
-    // config validation rejects until the real key is stored.
-    this.activationSigningKey = new secretsmanager.Secret(this, "ActivationSigningKey", {
-      description: `Activation SIGNING_KEY (${config.name}). Set manually from the existing key; never regenerate.`,
     });
   }
 }

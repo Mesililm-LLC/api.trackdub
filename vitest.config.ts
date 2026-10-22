@@ -5,18 +5,13 @@ import path from "node:path";
  * Portal API tests. Run in Node against an in-process PostgreSQL (PGlite) and
  * an in-memory object store, wired in through test/support/portal-env.ts.
  *
- * Existing tests import their runtime environment from `cloudflare:test`
- * (the module the old workerd pool provided); that specifier is aliased to the
- * support module instead of being rewritten in every test file.
- *
- * The activation service has its own config (vitest.activation.config.ts):
- * the two services have disjoint bindings and migrations.
+ * The activation Worker stays on Cloudflare (D1) and keeps its own workerd
+ * based config (vitest.activation.config.ts).
  */
 export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
-      "cloudflare:test": path.resolve(import.meta.dirname, "test/support/portal-env.ts"),
     },
   },
   test: {

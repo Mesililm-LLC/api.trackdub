@@ -8,12 +8,12 @@ const DEV_UNLIMITED_LICENSE_KEY = "TDUB-DEV-UNLIMITED-LOCAL";
 describe("dev-unlimited license key", () => {
   it("bypasses max_machines when ALLOW_DEV_LICENSES=true", async () => {
     // Seed the fixed dev key hash so lookupLicenseByKey resolves it, same as
-    // production requires (the key must exist in the database — this service never
+    // production requires (the key must exist in D1 — this Worker never
     // special-cases the row itself, only the seat-cap check on activation).
     await seedLicense({ maxMachines: 1 });
     const keyHash = await sha256Hex(DEV_UNLIMITED_LICENSE_KEY);
     await bindings.DB.prepare(
-      `INSERT INTO licenses (id, key_hash, tier, buyer_email, status, max_machines) VALUES (?, ?, 'pro', 'dev@local', 'active', 1) ON CONFLICT (key_hash) DO NOTHING`,
+      `INSERT OR IGNORE INTO licenses (id, key_hash, tier, buyer_email, status, max_machines) VALUES (?, ?, 'pro', 'dev@local', 'active', 1)`,
     )
       .bind(crypto.randomUUID(), keyHash)
       .run();
@@ -40,7 +40,7 @@ describe("dev-unlimited license key", () => {
     // must still succeed.
     const keyHash = await sha256Hex(DEV_UNLIMITED_LICENSE_KEY);
     await bindings.DB.prepare(
-      `INSERT INTO licenses (id, key_hash, tier, buyer_email, status, max_machines) VALUES (?, ?, 'pro', 'dev@local', 'active', 1) ON CONFLICT (key_hash) DO NOTHING`,
+      `INSERT OR IGNORE INTO licenses (id, key_hash, tier, buyer_email, status, max_machines) VALUES (?, ?, 'pro', 'dev@local', 'active', 1)`,
     )
       .bind(crypto.randomUUID(), keyHash)
       .run();

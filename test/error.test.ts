@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env } from "./support/portal-env";
 import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
 import app from "@/index";

@@ -1,17 +1,18 @@
-import { pgTable, text, integer, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { sqliteTable, text, integer, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 
 /**
- * PostgreSQL schema for the activation service. Ported from the archived reference
+ * D1 schema for the activation Worker. Ported from the archived reference
  * implementation's `migrations/0001_schema.sql` (Trackdub-Monorepo-Archive,
  * services/activation-service) — same tables, expressed as Drizzle so
  * `drizzle-kit generate` produces the migration and stays consistent with the
  * rest of this repo's schema style.
  *
- * This is a SEPARATE database from the portal's (`src/db/schema.ts`) —
+ * This is a SEPARATE D1 database from the portal's (`src/db/schema.ts`) —
  * licenses/activations have no relation to portal users/sessions.
  */
 
-export const licenses = pgTable("licenses", {
+export const licenses = sqliteTable("licenses", {
   id: text("id").primaryKey(),
   keyHash: text("key_hash").notNull().unique(),
   tier: text("tier").notNull().default("pro"),
@@ -19,10 +20,12 @@ export const licenses = pgTable("licenses", {
   /** 'active' | 'revoked' */
   status: text("status").notNull().default("active"),
   maxMachines: integer("max_machines").notNull().default(2),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
 });
 
-export const activations = pgTable(
+export const activations = sqliteTable(
   "activations",
   {
     id: text("id").primaryKey(),
@@ -32,8 +35,10 @@ export const activations = pgTable(
     fingerprintHash: text("fingerprint_hash").notNull(),
     /** 'active' | 'released' */
     status: text("status").notNull().default("active"),
-    activatedAt: timestamp("activated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-    releasedAt: timestamp("released_at", { withTimezone: true, mode: "date" }),
+    activatedAt: text("activated_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    releasedAt: text("released_at"),
   },
   (table) => [
     uniqueIndex("activations_license_fingerprint_unique").on(table.licenseId, table.fingerprintHash),

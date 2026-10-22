@@ -1,5 +1,3 @@
-import type { SqlDatabase } from "@/platform/sql";
-
 /**
  * Bindings for the activation Worker.
  *
@@ -10,8 +8,8 @@ import type { SqlDatabase } from "@/platform/sql";
  * code, so a bug in a portal route cannot leak the license signing key.
  */
 export interface ActivationBindings {
-  /** PostgreSQL holding `licenses` + `activations`. Separate database from the portal's. */
-  DB: SqlDatabase;
+  /** D1 holding `licenses` + `activations`. Separate DB from the portal's. */
+  DB: D1Database;
 
   // --- Public configuration (wrangler `vars`) ---
   APP_ENV: string;

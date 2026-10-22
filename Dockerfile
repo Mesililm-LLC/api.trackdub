@@ -1,9 +1,8 @@
-# Container image for AWS (ECS Fargate). One image serves both services:
-#   SERVICE=api         portal API         (default)
-#   SERVICE=activation  license activation
-# See server/main.ts and docs/plans/aws-migration.md.
-# Migrations: run `bun run server/migrate.ts` as a one-off task (same image,
-# same SERVICE value) before rolling out a new version.
+# Container image for AWS (ECS Fargate): the portal API (server/main.ts).
+# License activation and docs-rag stay Cloudflare Workers.
+# See docs/plans/aws-migration.md.
+# Migrations: run `bun run server/migrate.ts` as a one-off task from the same
+# image before rolling out a new version.
 
 FROM oven/bun:1.4.0 AS deps
 WORKDIR /app
@@ -13,8 +12,7 @@ RUN bun install --frozen-lockfile --production
 FROM oven/bun:1.4.0-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
-    PORT=8080 \
-    SERVICE=api
+    PORT=8080
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json tsconfig.json ./

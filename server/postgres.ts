@@ -1,9 +1,9 @@
 /**
  * PostgreSQL driver wiring (postgres.js) for the container runtime.
  *
- * `createPostgresSql` backs the raw-SQL surface used by the activation
- * service; `createPostgresDatabase` adds the Drizzle client the portal API
- * needs. Connections are opened lazily by postgres.js, so the process starts
+ * `createPostgresSql` backs the raw-SQL surface (`SqlDatabase`, used by the
+ * health checks); `createPostgresDatabase` adds the Drizzle client the portal
+ * API needs. Connections are opened lazily by postgres.js, so the process starts
  * (and answers `/healthz`) even while the database is unreachable.
  */
 import { drizzle } from "drizzle-orm/postgres-js";

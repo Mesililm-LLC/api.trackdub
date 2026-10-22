@@ -13,10 +13,11 @@ export const status = new Hono<ActivationEnv>();
  * workflows.
  *
  * The reference implementation this was ported from used `GET
- * /status?key=<license_key>`. Changed to POST + JSON body here: request
- * URLs, including query strings, end up in load balancer and access logs, so a
- * GET would put every raw license key into logs for anyone with log access to
- * read and reuse — the exact thing every other route
+ * /status?key=<license_key>`. Changed to POST + JSON body here: Cloudflare
+ * Workers Observability (`"observability": {"enabled": true}` in both
+ * wrangler configs) captures full request URLs including query strings, so a
+ * GET would put every raw license key into observability logs for anyone
+ * with log access to read and reuse — the exact thing every other route
  * avoids by taking `key` in the body. Safe to change since nothing shipped
  * depends on the old shape.
  */
@@ -45,7 +46,7 @@ status.post("/", async (c) => {
   }
 
   const countResult = await c.env.DB.prepare(
-    "SELECT COUNT(*)::int AS count FROM activations WHERE license_id = ? AND status = ?",
+    "SELECT COUNT(*) as count FROM activations WHERE license_id = ? AND status = ?",
   )
     .bind(license.id, "active")
     .first<{ count: number }>();

@@ -35,13 +35,7 @@ const mintSchema = z.object({
 const MAX_MINT_ATTEMPTS = 5;
 
 function isUniqueKeyHashConflict(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  // PostgreSQL: SQLSTATE 23505 (unique_violation) on the key_hash unique constraint.
-  const { code, constraint_name: constraintName } = err as Error & {
-    code?: string;
-    constraint_name?: string;
-  };
-  return code === "23505" && (constraintName ?? err.message).includes("key_hash");
+  return err instanceof Error && /UNIQUE constraint failed.*key_hash/i.test(err.message);
 }
 
 admin.post(

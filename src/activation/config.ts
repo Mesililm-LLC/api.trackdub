@@ -55,7 +55,7 @@ export function loadActivationConfig(env: ActivationBindings): ActivationConfig 
 
   const issues: string[] = [];
 
-  if (!env.DB) issues.push("database binding `DB` is not bound");
+  if (!env.DB) issues.push("D1 binding `DB` is not bound");
 
   const secrets = secretsSchema.safeParse(env);
   if (!secrets.success) {

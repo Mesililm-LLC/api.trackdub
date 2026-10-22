@@ -3,6 +3,9 @@
  * AWS account (profile `trackdub-admin`); nothing is shared between them
  * except the container registry.
  *
+ * Only the portal API runs on AWS. License activation and docs-rag stay
+ * Cloudflare Workers.
+ *
  * Values marked ASSUMPTION were not specified anywhere in the repo and should
  * be confirmed before the first deploy.
  */
@@ -13,17 +16,9 @@ export interface EnvConfig {
   account: string;
   region: string;
   vpcCidr: string;
-  /** Public hostnames. DNS stays in Cloudflare, so these are CNAMEs to the ALB. */
+  /** Public hostname. DNS stays in Cloudflare, so this is a CNAME to the ALB. */
   apiHost: string;
-  activationHost: string;
   portalOrigin: string;
-  /** Matches the desktop trust ring; see wrangler.activation*.jsonc. */
-  activation: {
-    issuer: string;
-    audience: string;
-    signingKeyId: string;
-    allowDevLicenses: boolean;
-  };
   db: {
     instanceClass: "t4g.micro" | "t4g.small" | "t4g.medium";
     multiAz: boolean;
@@ -51,14 +46,7 @@ export const STAGING: EnvConfig = {
   vpcCidr: "10.20.0.0/16",
   // ASSUMPTION: staging API host. activate.trackdub.dev is the existing staging activation host.
   apiHost: "api.trackdub.dev",
-  activationHost: "activate.trackdub.dev",
   portalOrigin: "https://portal.trackdub.dev",
-  activation: {
-    issuer: "https://activate.trackdub.dev",
-    audience: "trackdub-license-staging",
-    signingKeyId: "trackdub-staging-2026-09",
-    allowDevLicenses: true,
-  },
   db: {
     instanceClass: "t4g.micro",
     multiAz: false,
@@ -77,14 +65,7 @@ export const PRODUCTION: EnvConfig = {
   region: REGION,
   vpcCidr: "10.10.0.0/16",
   apiHost: "api.trackdub.com",
-  activationHost: "activate.trackdub.com",
   portalOrigin: "https://portal.trackdub.com",
-  activation: {
-    issuer: "https://activate.trackdub.com",
-    audience: "trackdub-license-prod",
-    signingKeyId: "trackdub-prod-2026-08b",
-    allowDevLicenses: false,
-  },
   db: {
     instanceClass: "t4g.small",
     multiAz: true,

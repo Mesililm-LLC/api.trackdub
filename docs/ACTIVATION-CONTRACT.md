@@ -182,3 +182,36 @@ chain: Worker signs with `kid` → desktop resolves that `kid` through the real
 trust ring → signature verifies. No unit test on either side covers that
 chain alone — this manual check is the actual gate before pointing
 production traffic (and `verify-release`) at the `.com` deployment.
+
+### Local testing with a Debug desktop build
+
+A Debug `Trackdub-gated` build ignores `trackdub.trust.json` and uses the built-in
+development ring (`TrustRingConfiguration.Development()`): key `dev-2026-07`, issuer
+`trackdub://dev-activation`, audience `trackdub-license-dev`. Run this Worker locally as
+that issuer, signing with the private half of that ring's public key
+(`DefaultDevPublicKeyPem`). That private key is dev-only and must never be a production
+key. Generate one with `Trackdub.Licensing.Tooling generate-key` (or any P-256 PKCS#8
+keypair), put the public half in `DefaultDevPublicKeyPem`, and add the private half to
+the git-ignored `.dev.vars` as one line with `\n` escapes. The Worker also refuses to boot
+without `ADMIN_API_TOKEN` (at least 16 characters); any local-only string works, and if
+`.dev.vars` already has one for the portal Worker, reuse it. Never use the production token:
+
+```
+SIGNING_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+ADMIN_API_TOKEN="any-local-only-string-of-16-or-more-characters"
+```
+
+Then, in this repo:
+
+```bash
+npm run db:migrate:activation:local     # local-only D1; never touches the remote database
+npm run db:seed:activation:dev-license  # row for the fixed dev key, tier pro
+npm run dev:activation:local            # http://127.0.0.1:8787, APP_ENV=development, ALLOW_DEV_LICENSES=true
+```
+
+Start the Debug desktop with `TRACKDUB_ACTIVATION_URL=http://127.0.0.1:8787` and activate
+`TDUB-DEV-UNLIMITED-LOCAL` in Settings → License. The dev key skips the machine cap, and a
+Release build rejects its tokens because the production ring degrades `dev_unlimited` to Free.
+
+`dev:activation:local` overrides the production config's vars from the command line, so it
+only works with `--local` bindings. `ALLOW_DEV_LICENSES` is refused when `APP_ENV=production`.

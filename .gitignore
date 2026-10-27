@@ -26,6 +26,9 @@ coverage
 .idea
 .DS_Store
 
+# CDK synthesized output — regenerated on every cdk synth/deploy
+infra/cdk.out/
+
 # Qoder local state — ignore everything except generated wiki + knowledge cards
 # and the wiki_plan.yaml steering config
 /.qoder/*

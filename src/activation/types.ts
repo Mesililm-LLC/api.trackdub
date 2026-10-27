@@ -2,7 +2,8 @@
  * Bindings for the activation Worker.
  *
  * This is a SEPARATE Worker from the portal API (`src/index.ts`) with a
- * disjoint set of bindings, deployed from `wrangler.activation.jsonc`. The two
+ * disjoint set of bindings, deployed from `cloudflare.config.ts` in
+ * `activation` / `activation-staging` mode. The two
  * do not share a D1 database and must not share `Bindings` types — the whole
  * point of the split is that `SIGNING_KEY` is reachable only from activation
  * code, so a bug in a portal route cannot leak the license signing key.

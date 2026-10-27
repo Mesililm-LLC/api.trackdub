@@ -1,9 +1,10 @@
 # Dependencies
 node_modules
 
-# Build / Wrangler
+# Build / Wrangler / cf
 dist
 .wrangler
+.cloudflare
 worker-configuration.d.ts
 
 # Secrets — never commit

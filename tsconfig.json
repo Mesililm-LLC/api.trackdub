@@ -20,6 +20,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "test", "drizzle.config.ts", "worker-configuration.d.ts"],
+  "include": ["src", "test", "drizzle.config.ts", "cloudflare.config.ts", ".cloudflare/types", "worker-configuration.d.ts"],
   "exclude": ["node_modules", "dist"]
 }

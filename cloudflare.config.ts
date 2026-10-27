@@ -1,19 +1,18 @@
 import { bindings, defineConfig } from "cf/config";
 
 /**
- * Secret-like files were detected but not read or migrated: .dev.vars, .dev.vars.docs-rag, .dev.vars.docs-rag.env, .dev.vars.example. Only `secrets.required` entries are migrated.
- * @see https://developers.cloudflare.com/workers/configuration/secrets/
+ * Secret-like files are not read by `cf` and are not part of this file:
+ * .dev.vars, .dev.vars.docs-rag, .dev.vars.docs-rag.env, .dev.vars.example.
+ * `cf dev` still loads .dev.vars locally.
+ *
+ * D1 migrations metadata (`migrations_dir` in Wrangler) is not part of
+ * cloudflare.config.ts. Apply migrations with the directory flag instead:
+ *   cf d1 migrations apply 073c0238-db61-40d3-b1ee-3e7555493a72 --dir drizzle
+ * @see https://developers.cloudflare.com/cf/wrangler/migrate/#d1-migrations
  */
-
-/**
- * This migration needs manual work. Resolve every TODO in this file, then remove the error below.
- */
-/**
- * TODO(@cloudflare): cf migrate: d1_databases.0: The options `migrations_dir` at `d1_databases.0` require manual migration.
- */
-throw new Error("Migration incomplete. Resolve every cf migrate TODO in `cloudflare.config.ts`.");
 
 export default defineConfig({
+	accountId: "21cac5947e11018d571c18792118b8b0",
 	worker: {
 		name: "trackdub-api",
 		compatibilityDate: "2025-08-01",
@@ -39,9 +38,8 @@ export default defineConfig({
 				name: "trackdub-media",
 			}),
 			CF_VERSION_METADATA: bindings.versionMetadata(),
+			BETTER_AUTH_SECRET: bindings.secret(),
+			ADMIN_API_TOKEN: bindings.secret(),
 		},
-		/**
-		 * TODO(@cloudflare): cf migrate: The options `migrations_dir` at `d1_databases.0` require manual migration.
-		 */
 	},
 });

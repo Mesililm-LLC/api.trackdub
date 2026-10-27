@@ -6,15 +6,16 @@
   "type": "module",
   "description": "api.trackdub.com — Cloudflare Worker backend (Better Auth + D1 + Drizzle) for the Trackdub portal.",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "cf dev",
+    "build": "cf build",
+    "deploy": "cf deploy",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 migrations apply trackdub_api --local",
-    "db:migrate:remote": "wrangler d1 migrations apply trackdub_api --remote",
-    "cf-typegen": "wrangler types",
+    "db:migrate:local": "cf d1 migrations apply 073c0238-db61-40d3-b1ee-3e7555493a72 --local --dir drizzle",
+    "db:migrate:remote": "cf d1 migrations apply 073c0238-db61-40d3-b1ee-3e7555493a72 --dir drizzle",
+    "cf-typegen": "cf workers types",
     "dev:docs-rag": "wrangler dev --config wrangler.docs-rag.jsonc",
     "deploy:docs-rag": "wrangler deploy --config wrangler.docs-rag.jsonc",
     "dev:activation": "wrangler dev --config wrangler.activation.jsonc",
@@ -50,7 +51,7 @@
     "drizzle-kit": "^0.31.10",
     "typescript": "^7.0.0",
     "vitest": "^4.1.11",
-    "wrangler": "^4.124.0"
+    "wrangler": "^4.152.0"
   },
   "allowScripts": {
     "esbuild": true,
